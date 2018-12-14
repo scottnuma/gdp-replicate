@@ -1,13 +1,13 @@
 package gdp
 
-type hash [32]byte
+type Hash [32]byte
 
 type Record struct {
-	Hash      hash
+	Hash      Hash
 	RecNo     int
 	Timestamp int64
 	Accuracy  float64
-	PrevHash  hash
+	PrevHash  Hash
 	Value     []byte
 	Sig       []byte
 }
