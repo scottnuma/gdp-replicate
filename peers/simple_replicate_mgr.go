@@ -17,18 +17,18 @@ import (
 // Simple Replication Manager that directly connects to peers
 type SimpleReplicateMgr struct {
 	// Store the IP:Port address for each peer
-	PeerAddrMap map[gdplogd.HashAddr]string
+	PeerAddrMap map[gdplogd.Hash]string
 }
 
 // Constructor for SimpleReplicateMgr
-func NewSimpleReplicateMgr(peerAddrMap map[gdplogd.HashAddr]string) *SimpleReplicateMgr {
+func NewSimpleReplicateMgr(peerAddrMap map[gdplogd.Hash]string) *SimpleReplicateMgr {
 	return &SimpleReplicateMgr{
 		PeerAddrMap: peerAddrMap,
 	}
 }
 
 // ListenAndServe serves HTTP request at ADDRESS with HANDLER
-func (mgr *SimpleReplicateMgr) ListenAndServe(address string, handler func(src gdplogd.HashAddr, msg *policy.Message)) error {
+func (mgr *SimpleReplicateMgr) ListenAndServe(address string, handler func(src gdplogd.Hash, msg *policy.Message)) error {
 	// msgHandler translates HTTP to messages
 	msgHandler := func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
@@ -65,7 +65,7 @@ func (mgr *SimpleReplicateMgr) ListenAndServe(address string, handler func(src g
 			Body: req.Body,
 		}
 
-		var srcAddr gdplogd.HashAddr
+		var srcAddr gdplogd.Hash
 		copy(srcAddr[:], src_[:32])
 
 		zap.S().Infow(
@@ -83,7 +83,7 @@ func (mgr *SimpleReplicateMgr) ListenAndServe(address string, handler func(src g
 	return http.ListenAndServe(address, nil)
 }
 
-func (mgr *SimpleReplicateMgr) Send(src, peer gdplogd.HashAddr, msg *policy.Message) error {
+func (mgr *SimpleReplicateMgr) Send(src, peer gdplogd.Hash, msg *policy.Message) error {
 	// Look up peer's actual IP address
 	ipAddr, ok := mgr.PeerAddrMap[peer]
 	if !ok {
@@ -127,14 +127,14 @@ func (mgr *SimpleReplicateMgr) Send(src, peer gdplogd.HashAddr, msg *policy.Mess
 	return nil
 }
 
-func (mgr *SimpleReplicateMgr) Broadcast(src gdplogd.HashAddr, msg *policy.Message) map[gdplogd.HashAddr]error {
+func (mgr *SimpleReplicateMgr) Broadcast(src gdplogd.Hash, msg *policy.Message) map[gdplogd.Hash]error {
 	// Dispatch several Send at the same time
 	ret := &sync.Map{}
 	wg := &sync.WaitGroup{}
 
 	for peer := range mgr.PeerAddrMap {
 		wg.Add(1)
-		go func(peer gdplogd.HashAddr) {
+		go func(peer gdplogd.Hash) {
 			defer wg.Done()
 
 			err := mgr.Send(src, peer, msg)
@@ -144,9 +144,9 @@ func (mgr *SimpleReplicateMgr) Broadcast(src gdplogd.HashAddr, msg *policy.Messa
 
 	wg.Wait()
 
-	exportMap := make(map[gdplogd.HashAddr]error)
+	exportMap := make(map[gdplogd.Hash]error)
 	ret.Range(func(key, value interface{}) bool {
-		exportMap[key.(gdplogd.HashAddr)] = value.(error)
+		exportMap[key.(gdplogd.Hash)] = value.(error)
 		return true
 	})
 	return exportMap

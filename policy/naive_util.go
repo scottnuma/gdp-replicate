@@ -13,8 +13,8 @@ import (
 )
 
 // GetAllLogHashes returns a slice of all log hashes in the log server
-func GetAllLogHashes(db *sql.DB) ([]gdplogd.HashAddr, error) {
-	allHashes := []gdplogd.HashAddr{}
+func GetAllLogHashes(db *sql.DB) ([]gdplogd.Hash, error) {
+	allHashes := []gdplogd.Hash{}
 
 	queryString := "select hash from log_entry;"
 	rows, err := db.Query(queryString)
@@ -22,7 +22,7 @@ func GetAllLogHashes(db *sql.DB) ([]gdplogd.HashAddr, error) {
 		return nil, err
 	}
 
-	var hash gdplogd.HashAddr
+	var hash gdplogd.Hash
 	var hashHolder []byte
 	for rows.Next() {
 		err = rows.Scan(&hashHolder)
@@ -77,7 +77,7 @@ func WriteLogEntries(db *sql.DB, logEntries []LogEntry) error {
 	return nil
 }
 
-func GetLogEntries(db *sql.DB, hashes []gdplogd.HashAddr) ([]LogEntry, error) {
+func GetLogEntries(db *sql.DB, hashes []gdplogd.Hash) ([]LogEntry, error) {
 	logEntries := []LogEntry{}
 	for _, hash := range hashes {
 		logEntry, err := GetLogEntry(db, hash)
@@ -93,7 +93,7 @@ func GetLogEntries(db *sql.DB, hashes []gdplogd.HashAddr) ([]LogEntry, error) {
 	return logEntries, nil
 }
 
-func GetLogEntry(db *sql.DB, hash gdplogd.HashAddr) (*LogEntry, error) {
+func GetLogEntry(db *sql.DB, hash gdplogd.Hash) (*LogEntry, error) {
 	var logEntry LogEntry
 
 	queryString := fmt.Sprintf("select hash, recno, timestamp, accuracy, prevhash, value, sig from log_entry where hex(hash) == '%X'", hash)
@@ -132,7 +132,7 @@ func GetLogEntry(db *sql.DB, hash gdplogd.HashAddr) (*LogEntry, error) {
 
 // findDifferences determines which hashes are exclusive to only one list.
 // e.g. finding the non-union parts of a Venn diagram
-func findDifferences(myHashes, theirHashes []gdplogd.HashAddr) (onlyMine []gdplogd.HashAddr, onlyTheirs []gdplogd.HashAddr) {
+func findDifferences(myHashes, theirHashes []gdplogd.Hash) (onlyMine []gdplogd.Hash, onlyTheirs []gdplogd.Hash) {
 	mySet := initSet(myHashes)
 	theirSet := initSet(theirHashes)
 
@@ -153,8 +153,8 @@ func findDifferences(myHashes, theirHashes []gdplogd.HashAddr) (onlyMine []gdplo
 }
 
 // initSet converts a HashAddr slice to a set
-func initSet(hashes []gdplogd.HashAddr) map[gdplogd.HashAddr]bool {
-	set := make(map[gdplogd.HashAddr]bool)
+func initSet(hashes []gdplogd.Hash) map[gdplogd.Hash]bool {
+	set := make(map[gdplogd.Hash]bool)
 	for _, hash := range hashes {
 		set[hash] = false
 	}
@@ -162,10 +162,10 @@ func initSet(hashes []gdplogd.HashAddr) map[gdplogd.HashAddr]bool {
 }
 
 type FirstMsgContent struct {
-	Hashes []gdplogd.HashAddr
+	Hashes []gdplogd.Hash
 }
 
-func encodeFirstMsg(hashes []gdplogd.HashAddr) (io.Reader, error) {
+func encodeFirstMsg(hashes []gdplogd.Hash) (io.Reader, error) {
 	firstMessageBytes, err := json.Marshal(FirstMsgContent{
 		Hashes: hashes,
 	})
@@ -175,7 +175,7 @@ func encodeFirstMsg(hashes []gdplogd.HashAddr) (io.Reader, error) {
 	return bytes.NewReader(firstMessageBytes), nil
 }
 
-func decodeFirstMsg(msg *Message) ([]gdplogd.HashAddr, error) {
+func decodeFirstMsg(msg *Message) ([]gdplogd.Hash, error) {
 	if msg.Type != first {
 		return nil, fmt.Errorf("expected first message but received %d message", msg.Type)
 	}
@@ -196,10 +196,10 @@ func decodeFirstMsg(msg *Message) ([]gdplogd.HashAddr, error) {
 
 type SecondMsgContent struct {
 	LogEntries []LogEntry
-	Hashes     []gdplogd.HashAddr
+	Hashes     []gdplogd.Hash
 }
 
-func decodeSecondMsg(msg *Message) ([]LogEntry, []gdplogd.HashAddr, error) {
+func decodeSecondMsg(msg *Message) ([]LogEntry, []gdplogd.Hash, error) {
 	if msg.Type != second {
 		return nil, nil, fmt.Errorf("expected second message but received %d message", msg.Type)
 	}

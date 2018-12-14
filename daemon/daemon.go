@@ -11,21 +11,21 @@ import (
 
 type Daemon struct {
 	httpAddr string
-	myAddr   gdplogd.HashAddr
+	myAddr   gdplogd.Hash
 	network  peers.ReplicateNetworkMgr
 	policy   policy.Policy
 	conn     gdplogd.LogDaemonConnection
 	// Controls the randomness of sending heart beats to peers
 	heartBeatState int
-	peerList       []gdplogd.HashAddr
+	peerList       []gdplogd.Hash
 }
 
 // NewDaemon initializes Daemon for a log
 func NewDaemon(
 	httpAddr,
 	sqlFile string,
-	myHashAddr gdplogd.HashAddr,
-	peerAddrMap map[gdplogd.HashAddr]string,
+	myHashAddr gdplogd.Hash,
+	peerAddrMap map[gdplogd.Hash]string,
 ) (Daemon, error) {
 	db, err := sql.Open("sqlite3", sqlFile)
 	if err != nil {
@@ -44,7 +44,7 @@ func NewDaemon(
 	policy := policy.NewGraphDiffPolicy(conn, "policy-name", graph)
 
 	// Create list of peers
-	peerList := make([]gdplogd.HashAddr, 0)
+	peerList := make([]gdplogd.Hash, 0)
 	for peer := range peerAddrMap {
 		peerList = append(peerList, peer)
 	}
@@ -64,8 +64,8 @@ func NewDaemon(
 func NewNaiveDaemon(
 	httpAddr,
 	sqlFile string,
-	myHashAddr gdplogd.HashAddr,
-	peerAddrMap map[gdplogd.HashAddr]string,
+	myHashAddr gdplogd.Hash,
+	peerAddrMap map[gdplogd.Hash]string,
 ) (Daemon, error) {
 	db, err := sql.Open("sqlite3", sqlFile)
 	if err != nil {
@@ -75,7 +75,7 @@ func NewNaiveDaemon(
 	policy := policy.NewNaivePolicy(db, "policy-name")
 
 	// Create list of peers
-	peerList := make([]gdplogd.HashAddr, 0)
+	peerList := make([]gdplogd.Hash, 0)
 	for peer := range peerAddrMap {
 		peerList = append(peerList, peer)
 	}
@@ -95,7 +95,7 @@ func (daemon Daemon) Start(fanoutDegree int) error {
 	zap.S().Info("starting daemon")
 	go daemon.scheduleHeartBeat(500, daemon.fanOutHeartBeat(fanoutDegree))
 
-	handler := func(src gdplogd.HashAddr, msg *policy.Message) {
+	handler := func(src gdplogd.Hash, msg *policy.Message) {
 		returnMsg := daemon.policy.ProcessMessage(msg, src)
 
 		if returnMsg != nil {

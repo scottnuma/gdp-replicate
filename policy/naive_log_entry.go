@@ -7,11 +7,11 @@ import (
 )
 
 type LogEntry struct {
-	Hash      gdplogd.HashAddr
+	Hash      gdplogd.Hash
 	RecNo     int
 	Timestamp int64
 	Accuracy  float64
-	PrevHash  gdplogd.HashAddr
+	PrevHash  gdplogd.Hash
 	Value     []byte
 	Sig       []byte
 }

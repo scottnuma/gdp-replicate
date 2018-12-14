@@ -8,9 +8,9 @@ import (
 // Entry point to talk to other replication daemons
 type ReplicateNetworkMgr interface {
 	// handler for incoming messages
-	ListenAndServe(address string, handler func(src gdplogd.HashAddr, msg *policy.Message)) error
+	ListenAndServe(address string, handler func(src gdplogd.Hash, msg *policy.Message)) error
 
-	Send(src, peer gdplogd.HashAddr, msg *policy.Message) error
+	Send(src, peer gdplogd.Hash, msg *policy.Message) error
 
-	Broadcast(src gdplogd.HashAddr, msg *policy.Message) map[gdplogd.HashAddr]error
+	Broadcast(src gdplogd.Hash, msg *policy.Message) map[gdplogd.Hash]error
 }

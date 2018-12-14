@@ -21,7 +21,7 @@ const (
 type NaivePolicy struct {
 	db      *sql.DB
 	name    string
-	myState map[gdplogd.HashAddr]PeerState
+	myState map[gdplogd.Hash]PeerState
 }
 
 // Unused for NaivePolicy
@@ -34,7 +34,7 @@ func (policy *NaivePolicy) UpdateCurrGraph() error {
 	return nil
 }
 
-func (policy *NaivePolicy) GenerateMessage(dest gdplogd.HashAddr) *Message {
+func (policy *NaivePolicy) GenerateMessage(dest gdplogd.Hash) *Message {
 	policy.initPeerIfNeeded(dest)
 
 	// Write every hash into message
@@ -66,7 +66,7 @@ func (policy *NaivePolicy) GenerateMessage(dest gdplogd.HashAddr) *Message {
 
 func (policy *NaivePolicy) ProcessMessage(
 	msg *Message,
-	src gdplogd.HashAddr,
+	src gdplogd.Hash,
 ) *Message {
 	zap.S().Debugw(
 		"processing message",
@@ -89,7 +89,7 @@ func (policy *NaivePolicy) ProcessMessage(
 	}
 }
 
-func (policy *NaivePolicy) processFirstMsg(msg *Message, src gdplogd.HashAddr) *Message {
+func (policy *NaivePolicy) processFirstMsg(msg *Message, src gdplogd.Hash) *Message {
 	zap.S().Debug("processing first msg")
 	// read all their hashes
 	theirHashes, err := decodeFirstMsg(msg)
@@ -133,7 +133,7 @@ func (policy *NaivePolicy) processFirstMsg(msg *Message, src gdplogd.HashAddr) *
 
 }
 
-func (policy *NaivePolicy) processSecondMsg(msg *Message, src gdplogd.HashAddr) *Message {
+func (policy *NaivePolicy) processSecondMsg(msg *Message, src gdplogd.Hash) *Message {
 	zap.S().Debug("processing second msg")
 	//parse Message
 	secondMsgLogEntries, secondMsgHashes, err := decodeSecondMsg(msg)
@@ -183,7 +183,7 @@ func (policy *NaivePolicy) processSecondMsg(msg *Message, src gdplogd.HashAddr) 
 	}
 }
 
-func (policy *NaivePolicy) processThirdMsg(msg *Message, src gdplogd.HashAddr) *Message {
+func (policy *NaivePolicy) processThirdMsg(msg *Message, src gdplogd.Hash) *Message {
 	zap.S().Debug("processing third msg")
 
 	// save receivved data
@@ -225,11 +225,11 @@ func NewNaivePolicy(db *sql.DB, name string) *NaivePolicy {
 	return &NaivePolicy{
 		db:      db,
 		name:    name,
-		myState: make(map[gdplogd.HashAddr]PeerState),
+		myState: make(map[gdplogd.Hash]PeerState),
 	}
 }
 
-func (policy *NaivePolicy) initPeerIfNeeded(peer gdplogd.HashAddr) {
+func (policy *NaivePolicy) initPeerIfNeeded(peer gdplogd.Hash) {
 	_, present := policy.myState[peer]
 	if !present {
 		policy.myState[peer] = resting

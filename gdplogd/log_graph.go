@@ -10,21 +10,21 @@ import (
 // LogGraph descriobe the graph of a DataCapsule on a log server
 type LogGraph struct {
 	// Address of the DataCapsule
-	GraphAddr HashAddr
+	GraphAddr Hash
 
 	db *sql.DB
 
 	// All log entries in the database as of last refresh
-	logEntries []LogEntryMetadata
+	logEntries []Record
 
 	forwardEdges  HashAddrMultiMap
-	backwardEdges map[HashAddr]HashAddr
-	logicalEnds   []HashAddr
-	logicalBegins []HashAddr
-	nodeMap       map[HashAddr]int
+	backwardEdges map[Hash]Hash
+	logicalEnds   []Hash
+	logicalBegins []Hash
+	nodeMap       map[Hash]int
 }
 
-func (logGraph *LogGraph) GetActualPtrMap() map[HashAddr]HashAddr {
+func (logGraph *LogGraph) GetActualPtrMap() map[Hash]Hash {
 	return logGraph.backwardEdges
 }
 
@@ -32,19 +32,19 @@ func (logGraph *LogGraph) GetLogicalPtrMap() HashAddrMultiMap {
 	return logGraph.forwardEdges
 }
 
-func (logGraph *LogGraph) GetLogicalEnds() []HashAddr {
+func (logGraph *LogGraph) GetLogicalEnds() []Hash {
 	return logGraph.logicalEnds
 }
 
-func (logGraph *LogGraph) GetLogicalBegins() []HashAddr {
+func (logGraph *LogGraph) GetLogicalBegins() []Hash {
 	return logGraph.logicalBegins
 }
 
-func (logGraph *LogGraph) GetNodeMap() map[HashAddr]int {
+func (logGraph *LogGraph) GetNodeMap() map[Hash]int {
 	return logGraph.nodeMap
 }
 
-func (logGraph *LogGraph) AcceptNewLogEntries(entries []LogEntryMetadata) {
+func (logGraph *LogGraph) AcceptNewLogEntries(entries []Record) {
 	logGraph.logEntries = append(logGraph.logEntries, entries...)
 	logGraph.forwardEdges, logGraph.backwardEdges = getLogGraphs(
 		logGraph.logEntries,
@@ -56,7 +56,7 @@ func (logGraph *LogGraph) AcceptNewLogEntries(entries []LogEntryMetadata) {
 }
 
 // Return LogGraph and calculate its logical represntation
-func InitLogGraph(graphAddr HashAddr, db *sql.DB) (LogGraph, error) {
+func InitLogGraph(graphAddr Hash, db *sql.DB) (LogGraph, error) {
 	var logGraph LogGraph
 	logGraph.GraphAddr = graphAddr
 	logGraph.db = db
@@ -90,16 +90,16 @@ func (logGraph *LogGraph) RefreshLogGraph() error {
 }
 
 func (logGraph *LogGraph) CalcNodeMap() {
-	logGraph.nodeMap = make(map[HashAddr]int)
+	logGraph.nodeMap = make(map[Hash]int)
 
 	for key := range logGraph.backwardEdges {
 		logGraph.nodeMap[key] = 1
 	}
 }
 
-func getLogGraphs(logEntries []LogEntryMetadata) (forwardEdges HashAddrMultiMap, backwardEdges map[HashAddr]HashAddr) {
+func getLogGraphs(logEntries []Record) (forwardEdges HashAddrMultiMap, backwardEdges map[Hash]Hash) {
 	forwardEdges = make(HashAddrMultiMap)
-	backwardEdges = make(map[HashAddr]HashAddr)
+	backwardEdges = make(map[Hash]Hash)
 
 	for _, logEntry := range logEntries {
 		backwardEdges[logEntry.Hash] = logEntry.PrevHash
@@ -107,7 +107,7 @@ func getLogGraphs(logEntries []LogEntryMetadata) (forwardEdges HashAddrMultiMap,
 		nodeForwardEdges, present := forwardEdges[logEntry.PrevHash]
 
 		if !present {
-			forwardEdges[logEntry.PrevHash] = []HashAddr{logEntry.Hash}
+			forwardEdges[logEntry.PrevHash] = []Hash{logEntry.Hash}
 		} else {
 			forwardEdges[logEntry.PrevHash] = append(nodeForwardEdges, logEntry.Hash)
 		}
@@ -116,7 +116,7 @@ func getLogGraphs(logEntries []LogEntryMetadata) (forwardEdges HashAddrMultiMap,
 }
 
 func (logGraph *LogGraph) CalcLogicalEnds() {
-	logicalEnds := []HashAddr{}
+	logicalEnds := []Hash{}
 
 	for _, logEntry := range logGraph.logEntries {
 		_, present := logGraph.forwardEdges[logEntry.Hash]
@@ -129,9 +129,9 @@ func (logGraph *LogGraph) CalcLogicalEnds() {
 }
 
 func (logGraph *LogGraph) CalcLogicalBegins() {
-	logicalBegins := []HashAddr{}
+	logicalBegins := []Hash{}
 
-	var emptyHashAddr HashAddr
+	var emptyHashAddr Hash
 
 	for _, logEntry := range logGraph.logEntries {
 		// logEntries that are the start of a chain are logical begins
@@ -150,17 +150,17 @@ func (logGraph *LogGraph) CalcLogicalBegins() {
 }
 
 // Return all log entries in the database
-func (logGraph *LogGraph) GetAllLogs() ([]LogEntryMetadata, error) {
+func (logGraph *LogGraph) GetAllLogs() ([]Record, error) {
 	rows, err := logGraph.db.Query("select hash, recno, timestamp, accuracy, prevhash, sig from log_entry")
 	if err != nil {
 		return nil, err
 	}
 
-	var logEntries []LogEntryMetadata
+	var logEntries []Record
 	var hashHolder []byte
 	var prevHashHolder []byte
 	for rows.Next() {
-		var logEntry LogEntryMetadata
+		var logEntry Record
 		err = rows.Scan(
 			&hashHolder,
 			&logEntry.RecNo,
@@ -189,9 +189,9 @@ func (logGraph *LogGraph) GetAllLogs() ([]LogEntryMetadata, error) {
 }
 
 // Return log entry with hash
-func (logGraph *LogGraph) GetLog(hash []byte) (LogEntryMetadata, error) {
+func (logGraph *LogGraph) GetLog(hash []byte) (Record, error) {
 	db := logGraph.db
-	var logEntry LogEntryMetadata
+	var logEntry Record
 
 	queryString := fmt.Sprintf("select hash, recno, timestamp, accuracy, prevhash, value, sig from log_entry where hex(hash) == '%X'", hash)
 	rows, err := db.Query(queryString)
@@ -217,7 +217,7 @@ func (logGraph *LogGraph) GetLog(hash []byte) (LogEntryMetadata, error) {
 }
 
 // Determine if a log entry with a specific hash is present in the database
-func (logGraph *LogGraph) HashPresent(hash HashAddr) (bool, error) {
+func (logGraph *LogGraph) HashPresent(hash Hash) (bool, error) {
 	db := logGraph.db
 	queryString := fmt.Sprintf("select count(hash) from log_entry where hex(hash) == '%X'\n", hash)
 	rows, err := db.Query(queryString)
@@ -236,7 +236,7 @@ func (logGraph *LogGraph) HashPresent(hash HashAddr) (bool, error) {
 }
 
 // Add LogEntries to the database.
-func (logGraph *LogGraph) AppendLogEntry(logEntries []LogEntryMetadata) error {
+func (logGraph *LogGraph) AppendLogEntry(logEntries []Record) error {
 	db := logGraph.db
 	tx, err := db.Begin()
 	if err != nil {

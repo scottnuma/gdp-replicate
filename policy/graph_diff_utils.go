@@ -11,7 +11,7 @@ import (
 )
 
 // Get peer policy context
-func (policy *GraphDiffPolicy) getPeerPolicyContext(peer gdplogd.HashAddr) *peerPolicyContext {
+func (policy *GraphDiffPolicy) getPeerPolicyContext(peer gdplogd.Hash) *peerPolicyContext {
 	return &peerPolicyContext{
 		graph:  policy.graphInUse[peer],
 		policy: policy,
@@ -20,12 +20,12 @@ func (policy *GraphDiffPolicy) getPeerPolicyContext(peer gdplogd.HashAddr) *peer
 
 // Return all connected hash addresses in the graph from a list of requested
 // This function should handle deduplication
-func (ctx *peerPolicyContext) getConnectedAddrs(addrs []gdplogd.HashAddr) []gdplogd.HashAddr {
-	empty := []gdplogd.HashAddr{}
+func (ctx *peerPolicyContext) getConnectedAddrs(addrs []gdplogd.Hash) []gdplogd.Hash {
+	empty := []gdplogd.Hash{}
 
-	result := make(map[gdplogd.HashAddr]int)
+	result := make(map[gdplogd.Hash]int)
 
-	_getConnected := func(addr gdplogd.HashAddr) {
+	_getConnected := func(addr gdplogd.Hash) {
 		// Add addr itself
 		result[addr] = 1
 
@@ -44,7 +44,7 @@ func (ctx *peerPolicyContext) getConnectedAddrs(addrs []gdplogd.HashAddr) []gdpl
 		_getConnected(addr)
 	}
 
-	ret := []gdplogd.HashAddr{}
+	ret := []gdplogd.Hash{}
 	for key := range result {
 		ret = append(ret, key)
 	}
@@ -54,7 +54,7 @@ func (ctx *peerPolicyContext) getConnectedAddrs(addrs []gdplogd.HashAddr) []gdpl
 
 // Write a data section, not including "data\n", from a list of hash addresses requested
 // Returns an error if some of the hash address are not available
-func (ctx *peerPolicyContext) constructDataSection(addrs []gdplogd.HashAddr, dest *bytes.Buffer) error {
+func (ctx *peerPolicyContext) constructDataSection(addrs []gdplogd.Hash, dest *bytes.Buffer) error {
 	// First, write how many items to expect
 	dest.WriteString(strconv.Itoa(len(addrs)))
 	dest.WriteString("\n")
@@ -118,7 +118,7 @@ func (ctx *peerPolicyContext) processDataSection(body io.Reader) {
 		return
 	}
 
-	updates := make([]gdplogd.LogEntryMetadata, 0)
+	updates := make([]gdplogd.Record, 0)
 	var logEntriesToWrite []LogEntry
 
 	for ; length > 0; length-- {
@@ -142,8 +142,8 @@ func (ctx *peerPolicyContext) processDataSection(body io.Reader) {
 			return
 		}
 
-		var addr gdplogd.HashAddr
-		var prev gdplogd.HashAddr
+		var addr gdplogd.Hash
+		var prev gdplogd.Hash
 		_, err = io.ReadFull(reader, addr[:])
 		if err != nil {
 			zap.S().Errorw(
@@ -172,7 +172,7 @@ func (ctx *peerPolicyContext) processDataSection(body io.Reader) {
 			return
 		}
 
-		metadata := gdplogd.LogEntryMetadata{
+		metadata := gdplogd.Record{
 			Hash:     addr,
 			PrevHash: prev,
 			// TODO
@@ -208,7 +208,7 @@ func (ctx *peerPolicyContext) tryStoreLogEntries(logEntries []LogEntry) error {
 
 // Try to store the data at addr
 // Return whether the data is stored via this call, or already in gdplogd
-func (ctx *peerPolicyContext) tryStoreData(metadata gdplogd.LogEntryMetadata, data []byte) bool {
+func (ctx *peerPolicyContext) tryStoreData(metadata gdplogd.Record, data []byte) bool {
 	conn := ctx.policy.conn
 	name := ctx.policy.name
 	addr := metadata.Hash
@@ -244,12 +244,12 @@ func (ctx *peerPolicyContext) tryStoreData(metadata gdplogd.LogEntryMetadata, da
 // Return:
 //   a list of hash addresses visited, not including start or terminals
 //   a list of begins / ends in local graph reached
-func (ctx *peerPolicyContext) searchAhead(start gdplogd.HashAddr, terminals []gdplogd.HashAddr) ([]gdplogd.HashAddr, []gdplogd.HashAddr) {
+func (ctx *peerPolicyContext) searchAhead(start gdplogd.Hash, terminals []gdplogd.Hash) ([]gdplogd.Hash, []gdplogd.Hash) {
 	actualMap := ctx.graph.GetActualPtrMap()
 	terminalMap := addrSliceToMap(terminals)
 
-	visited := make([]gdplogd.HashAddr, 0)
-	localEnds := make([]gdplogd.HashAddr, 0)
+	visited := make([]gdplogd.Hash, 0)
+	localEnds := make([]gdplogd.Hash, 0)
 
 	current := start
 	prev, found := actualMap[current]
@@ -277,11 +277,11 @@ func (ctx *peerPolicyContext) searchAhead(start gdplogd.HashAddr, terminals []gd
 // Return:
 //   a list of hash addresses visited, not including start or terminals
 //   a list of begins / ends in local graph reached
-func (ctx *peerPolicyContext) searchAfter(start gdplogd.HashAddr, terminals []gdplogd.HashAddr) ([]gdplogd.HashAddr, []gdplogd.HashAddr) {
+func (ctx *peerPolicyContext) searchAfter(start gdplogd.Hash, terminals []gdplogd.Hash) ([]gdplogd.Hash, []gdplogd.Hash) {
 	return ctx._searchAfter(start, addrSliceToMap(terminals))
 }
 
-func (ctx *peerPolicyContext) _searchAfter(start gdplogd.HashAddr, terminals map[gdplogd.HashAddr]int) ([]gdplogd.HashAddr, []gdplogd.HashAddr) {
+func (ctx *peerPolicyContext) _searchAfter(start gdplogd.Hash, terminals map[gdplogd.Hash]int) ([]gdplogd.Hash, []gdplogd.Hash) {
 	logicalMap := ctx.graph.GetLogicalPtrMap()
 
 	// Use recursion since we may have branches, start is never included
@@ -289,15 +289,15 @@ func (ctx *peerPolicyContext) _searchAfter(start gdplogd.HashAddr, terminals map
 
 	// base cases
 	if _, terminate := terminals[start]; terminate {
-		return []gdplogd.HashAddr{}, []gdplogd.HashAddr{}
+		return []gdplogd.Hash{}, []gdplogd.Hash{}
 	}
 
 	if !found {
-		return []gdplogd.HashAddr{}, []gdplogd.HashAddr{start}
+		return []gdplogd.Hash{}, []gdplogd.Hash{start}
 	}
 
-	visited := []gdplogd.HashAddr{}
-	localEnds := make([]gdplogd.HashAddr, 0)
+	visited := []gdplogd.Hash{}
+	localEnds := make([]gdplogd.Hash, 0)
 	for _, node := range after {
 		visited_, localEnds_ := ctx._searchAfter(node, terminals)
 		visited = append(visited, node)
@@ -314,16 +314,16 @@ func (ctx *peerPolicyContext) _searchAfter(start gdplogd.HashAddr, terminals map
 //   local ends not matched
 //   peer begins not matched
 //   peer ends not matched
-func (ctx *peerPolicyContext) compareBeginsEnds(peerBegins, peerEnds []gdplogd.HashAddr) ([]gdplogd.HashAddr, []gdplogd.HashAddr, []gdplogd.HashAddr, []gdplogd.HashAddr) {
+func (ctx *peerPolicyContext) compareBeginsEnds(peerBegins, peerEnds []gdplogd.Hash) ([]gdplogd.Hash, []gdplogd.Hash, []gdplogd.Hash, []gdplogd.Hash) {
 	localBegins := ctx.graph.GetLogicalBegins()
 	localEnds := ctx.graph.GetLogicalEnds()
 
-	diffSlices := func(local, peer []gdplogd.HashAddr) ([]gdplogd.HashAddr, []gdplogd.HashAddr) {
+	diffSlices := func(local, peer []gdplogd.Hash) ([]gdplogd.Hash, []gdplogd.Hash) {
 		localMap := addrSliceToMap(local)
 		peerMap := addrSliceToMap(peer)
 
-		localDiff := make([]gdplogd.HashAddr, 0)
-		peerDiff := make([]gdplogd.HashAddr, 0)
+		localDiff := make([]gdplogd.Hash, 0)
+		peerDiff := make([]gdplogd.Hash, 0)
 
 		for _, l := range local {
 			if _, ok := peerMap[l]; !ok {

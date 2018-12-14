@@ -56,14 +56,14 @@ type GraphDiffPolicy struct {
 
 	// current graph in use for a specific peer
 	// should reset to nil when message exchange ends
-	graphInUse map[gdplogd.HashAddr]gdplogd.LogGraphWrapper
+	graphInUse map[gdplogd.Hash]gdplogd.LogGraphWrapper
 
 	// last message sent to the peer
 	// used to keep track of message exchanges state
-	peerLastMsgType map[gdplogd.HashAddr]PeerState
+	peerLastMsgType map[gdplogd.Hash]PeerState
 
 	// mutex for each peer
-	peerMutex map[gdplogd.HashAddr]*sync.Mutex
+	peerMutex map[gdplogd.Hash]*sync.Mutex
 }
 
 // Context for a specific peer
@@ -80,9 +80,9 @@ func NewGraphDiffPolicy(conn gdplogd.LogDaemonConnection, name string, graph gdp
 		conn:            conn,
 		name:            name,
 		currentGraph:    graph,
-		graphInUse:      make(map[gdplogd.HashAddr]gdplogd.LogGraphWrapper),
-		peerLastMsgType: make(map[gdplogd.HashAddr]PeerState),
-		peerMutex:       make(map[gdplogd.HashAddr]*sync.Mutex),
+		graphInUse:      make(map[gdplogd.Hash]gdplogd.LogGraphWrapper),
+		peerLastMsgType: make(map[gdplogd.Hash]PeerState),
+		peerMutex:       make(map[gdplogd.Hash]*sync.Mutex),
 	}
 }
 
@@ -101,7 +101,7 @@ func (policy *GraphDiffPolicy) UpdateCurrGraph() error {
 	return nil
 }
 
-func (policy *GraphDiffPolicy) initPeerIfNeeded(peer gdplogd.HashAddr) {
+func (policy *GraphDiffPolicy) initPeerIfNeeded(peer gdplogd.Hash) {
 	mutex, ok := policy.peerMutex[peer]
 	if !ok {
 		policy.peerMutex[peer] = &sync.Mutex{}
@@ -122,12 +122,12 @@ func (policy *GraphDiffPolicy) initPeerIfNeeded(peer gdplogd.HashAddr) {
 	}
 }
 
-func (policy *GraphDiffPolicy) resetPeerStatus(peer gdplogd.HashAddr) {
+func (policy *GraphDiffPolicy) resetPeerStatus(peer gdplogd.Hash) {
 	policy.graphInUse[peer] = nil
 	policy.peerLastMsgType[peer] = noMsgExchanged
 }
 
-func (policy *GraphDiffPolicy) GenerateMessage(dest gdplogd.HashAddr) *Message {
+func (policy *GraphDiffPolicy) GenerateMessage(dest gdplogd.Hash) *Message {
 	// only create a message if the dest is at noMsgExchanged state
 	// otherwise return nil
 	policy.initPeerIfNeeded(dest)
@@ -166,7 +166,7 @@ func (policy *GraphDiffPolicy) GenerateMessage(dest gdplogd.HashAddr) *Message {
 	}
 }
 
-func (policy *GraphDiffPolicy) ProcessMessage(msg *Message, src gdplogd.HashAddr) *Message {
+func (policy *GraphDiffPolicy) ProcessMessage(msg *Message, src gdplogd.Hash) *Message {
 	zap.S().Debugw(
 		"processing message",
 		"msg", msg,
@@ -217,7 +217,7 @@ func (policy *GraphDiffPolicy) ProcessMessage(msg *Message, src gdplogd.HashAddr
 
 // Below are handlers for specific messages
 // Handlers assume the mutex of the src is held by caller
-func (policy *GraphDiffPolicy) processFirstMsg(msg *Message, src gdplogd.HashAddr) *Message {
+func (policy *GraphDiffPolicy) processFirstMsg(msg *Message, src gdplogd.Hash) *Message {
 	peerBegins, peerEnds, err := processBeginsEnds(msg.Body)
 
 	if err != nil {
@@ -238,7 +238,7 @@ func (policy *GraphDiffPolicy) processFirstMsg(msg *Message, src gdplogd.HashAdd
 	graph := policy.graphInUse[src]
 	nodeMap := graph.GetNodeMap()
 
-	nodesToSend := make([]gdplogd.HashAddr, 0)
+	nodesToSend := make([]gdplogd.Hash, 0)
 
 	for _, begin := range peerBeginsNotMatched {
 		if _, found := nodeMap[begin]; found {
@@ -288,7 +288,7 @@ func (policy *GraphDiffPolicy) processFirstMsg(msg *Message, src gdplogd.HashAdd
 	}
 }
 
-func (policy *GraphDiffPolicy) processSecondMsg(msg *Message, src gdplogd.HashAddr) *Message {
+func (policy *GraphDiffPolicy) processSecondMsg(msg *Message, src gdplogd.Hash) *Message {
 	ctx := policy.getPeerPolicyContext(src)
 
 	reader := bufio.NewReader(msg.Body)
@@ -317,11 +317,11 @@ func (policy *GraphDiffPolicy) processSecondMsg(msg *Message, src gdplogd.HashAd
 	graph := policy.graphInUse[src]
 	nodeMap := graph.GetNodeMap()
 
-	nodesToSend := make([]gdplogd.HashAddr, 0)
-	componentsToSend := make([]gdplogd.HashAddr, 0)
-	requests := make([]gdplogd.HashAddr, 0)
+	nodesToSend := make([]gdplogd.Hash, 0)
+	componentsToSend := make([]gdplogd.Hash, 0)
+	requests := make([]gdplogd.Hash, 0)
 
-	myBeginsEndsToSend := make(map[gdplogd.HashAddr]int)
+	myBeginsEndsToSend := make(map[gdplogd.Hash]int)
 
 	for _, begin := range peerBeginsNotMatched {
 		if _, found := nodeMap[begin]; found {
@@ -398,7 +398,7 @@ func (policy *GraphDiffPolicy) processSecondMsg(msg *Message, src gdplogd.HashAd
 	}
 }
 
-func (policy *GraphDiffPolicy) processThirdMsg(msg *Message, src gdplogd.HashAddr) *Message {
+func (policy *GraphDiffPolicy) processThirdMsg(msg *Message, src gdplogd.Hash) *Message {
 	ctx := policy.getPeerPolicyContext(src)
 
 	reader := bufio.NewReader(msg.Body)
@@ -452,7 +452,7 @@ func (policy *GraphDiffPolicy) processThirdMsg(msg *Message, src gdplogd.HashAdd
 	return ret
 }
 
-func (policy *GraphDiffPolicy) processFourthMsg(msg *Message, src gdplogd.HashAddr) *Message {
+func (policy *GraphDiffPolicy) processFourthMsg(msg *Message, src gdplogd.Hash) *Message {
 	ctx := policy.getPeerPolicyContext(src)
 
 	reader := bufio.NewReader(msg.Body)

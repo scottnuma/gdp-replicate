@@ -34,11 +34,11 @@ func aTestWriteLogEntry(t *testing.T) {
 
 	logEntries := []LogEntry{
 		LogEntry{
-			Hash:      gdplogd.HashAddr{},
+			Hash:      gdplogd.Hash{},
 			RecNo:     1,
 			Timestamp: 2,
 			Accuracy:  2,
-			PrevHash:  gdplogd.HashAddr{},
+			PrevHash:  gdplogd.Hash{},
 			Value:     []byte{},
 			Sig:       []byte{},
 		},
@@ -51,15 +51,15 @@ func TestReadLogEntry(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
-	logEntry, err := GetLogEntry(db, gdplogd.HashAddr{})
+	logEntry, err := GetLogEntry(db, gdplogd.Hash{})
 	assert.Nil(t, err)
 	assert.Equal(t, 1, logEntry.RecNo)
 }
 
 func TestBinaryConversion(t *testing.T) {
-	hash := gdplogd.HashAddr{}
+	hash := gdplogd.Hash{}
 	hash[0] = 1
-	prevHash := gdplogd.HashAddr{}
+	prevHash := gdplogd.Hash{}
 	prevHash[1] = 1
 	logEntry := LogEntry{
 		Hash:      hash,
@@ -84,9 +84,9 @@ func TestBinaryConversion(t *testing.T) {
 }
 
 func TestSecondMessageContentConversion(t *testing.T) {
-	hash := gdplogd.HashAddr{}
+	hash := gdplogd.Hash{}
 	hash[0] = 1
-	prevHash := gdplogd.HashAddr{}
+	prevHash := gdplogd.Hash{}
 	prevHash[1] = 1
 	logEntry := LogEntry{
 		Hash:      hash,
@@ -99,7 +99,7 @@ func TestSecondMessageContentConversion(t *testing.T) {
 	}
 	s := SecondMsgContent{
 		[]LogEntry{logEntry},
-		[]gdplogd.HashAddr{hash, prevHash},
+		[]gdplogd.Hash{hash, prevHash},
 	}
 
 	b, err := json.Marshal(s)
@@ -119,7 +119,7 @@ func TestGenerateMessage(t *testing.T) {
 
 	policy := NewNaivePolicy(db, "default")
 
-	var dest gdplogd.HashAddr
+	var dest gdplogd.Hash
 	msg := policy.GenerateMessage(dest)
 	bytesRead, err := ioutil.ReadAll(msg.Body)
 	assert.Nil(t, err)
@@ -134,7 +134,7 @@ func TestProcessFirstMsg(t *testing.T) {
 	assert.Nil(t, err)
 
 	policy := NewNaivePolicy(db, "default")
-	var addr gdplogd.HashAddr
+	var addr gdplogd.Hash
 	firstMsg := policy.GenerateMessage(addr)
 	secondMsg := policy.processFirstMsg(firstMsg, addr)
 
@@ -152,10 +152,10 @@ func TestExchange(t *testing.T) {
 	dbB, err := sql.Open("sqlite3", "/tmp/gdp/simple_short.glob")
 	assert.Nil(t, err)
 	policyA := NewNaivePolicy(dbA, "A")
-	hashA := gdplogd.HashAddr{}
+	hashA := gdplogd.Hash{}
 	hashA[0] = 1
 	policyB := NewNaivePolicy(dbB, "B")
-	hashB := gdplogd.HashAddr{}
+	hashB := gdplogd.Hash{}
 	hashB[1] = 1
 	firstMsg := policyA.GenerateMessage(hashB)
 

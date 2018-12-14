@@ -10,12 +10,12 @@ import (
 )
 
 // msgPrinter is a message handler that displays the msg.
-func msgPrinter(src gdplogd.HashAddr, msg *policy.Message) {
+func msgPrinter(src gdplogd.Hash, msg *policy.Message) {
 	fmt.Printf("received message")
 }
 
 // InitLogger initializes the Zap logger
-func InitLogger(addr gdplogd.HashAddr) {
+func InitLogger(addr gdplogd.Hash) {
 	zapLogger, err := zap.NewDevelopment()
 	zapLogger = zapLogger.With(
 		zap.String("selfAddr", gdplogd.ReadableAddr(addr)),

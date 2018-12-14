@@ -49,8 +49,8 @@ func main() {
 
 // parsePeers parses a comma delimited string of IP:ports to a map from
 // GDP addr to IP addr.
-func parsePeers(peers string) map[gdplogd.HashAddr]string {
-	peerMap := make(map[gdplogd.HashAddr]string)
+func parsePeers(peers string) map[gdplogd.Hash]string {
+	peerMap := make(map[gdplogd.Hash]string)
 	peerAddrs := strings.Split(peers, ",")
 	for _, peerAddr := range peerAddrs {
 		peerGDPAddr := sha256.Sum256([]byte(peerAddr))

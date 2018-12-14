@@ -14,7 +14,7 @@ func TestLogGraph(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
-	log, err := InitLogGraph(HashAddr{}, db)
+	log, err := InitLogGraph(Hash{}, db)
 	require.Nil(t, err)
 
 	assert.NotEqual(t, 0, len(log.logEntries))

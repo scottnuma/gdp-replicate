@@ -17,12 +17,12 @@ type LogDaemonConnection interface {
 	GetConnection() *sql.DB
 	GetGraph(name string) (LogGraphWrapper, error)
 
-	ReadLogMetadata(name string, addr HashAddr) (*LogEntryMetadata, error)
-	ReadLogItem(name string, addr HashAddr) (io.Reader, error)
+	ReadLogMetadata(name string, addr Hash) (*Record, error)
+	ReadLogItem(name string, addr Hash) (io.Reader, error)
 
-	WriteLogItem(name string, metadata *LogEntryMetadata, data io.Reader) error
+	WriteLogItem(name string, metadata *Record, data io.Reader) error
 
-	ContainsLogItem(name string, addr HashAddr) (bool, error)
+	ContainsLogItem(name string, addr Hash) (bool, error)
 }
 
 // LogDaemonConnector supports only a single database per instance
@@ -37,7 +37,7 @@ func InitLogDaemonConnector(db *sql.DB, name string) (LogDaemonConnector, error)
 	conn.db = db
 	conn.graphs = make(map[string]LogGraphWrapper)
 
-	logGraph, err := InitLogGraph(HashAddr{}, conn.db)
+	logGraph, err := InitLogGraph(Hash{}, conn.db)
 	if err != nil {
 		return conn, err
 	}
@@ -56,16 +56,16 @@ func (conn LogDaemonConnector) GetGraphs() (map[string]LogGraphWrapper, error) {
 
 // GetGraph returns the graph representation of NAME database
 func (conn LogDaemonConnector) GetGraph(name string) (LogGraphWrapper, error) {
-	newGraph, err := InitLogGraph(HashAddr{}, conn.db)
+	newGraph, err := InitLogGraph(Hash{}, conn.db)
 	return &newGraph, err
 }
 
 // ReadLogMetadata returns the log entry metadata with ADDR from database with NAME.
 func (conn LogDaemonConnector) ReadLogMetadata(
 	name string,
-	addr HashAddr,
-) (*LogEntryMetadata, error) {
-	var logEntry LogEntryMetadata
+	addr Hash,
+) (*Record, error) {
+	var logEntry Record
 
 	queryString := fmt.Sprintf(
 		"select hash, recno, timestamp, accuracy, prevhash, sig from log_entry where hex(hash) == '%X'",
@@ -106,7 +106,7 @@ func (conn LogDaemonConnector) ReadLogMetadata(
 }
 
 // Return the log entry value with ADDR from database with NAME.
-func (conn LogDaemonConnector) ReadLogItem(name string, addr HashAddr) (io.Reader, error) {
+func (conn LogDaemonConnector) ReadLogItem(name string, addr Hash) (io.Reader, error) {
 	var value []byte
 
 	queryString := fmt.Sprintf("select value from log_entry where hex(hash) == '%X'", addr)
@@ -126,7 +126,7 @@ func (conn LogDaemonConnector) ReadLogItem(name string, addr HashAddr) (io.Reade
 }
 
 // Add LogEntries to the database.
-func (conn LogDaemonConnector) WriteLogItem(name string, logEntry *LogEntryMetadata, data io.Reader) error {
+func (conn LogDaemonConnector) WriteLogItem(name string, logEntry *Record, data io.Reader) error {
 	tx, err := conn.db.Begin()
 	if err != nil {
 		return err
@@ -174,7 +174,7 @@ func (conn LogDaemonConnector) WriteLogItem(name string, logEntry *LogEntryMetad
 }
 
 // ContainsLogItem determines if a log entry with a specific hash is present in the database
-func (conn LogDaemonConnector) ContainsLogItem(name string, addr HashAddr) (bool, error) {
+func (conn LogDaemonConnector) ContainsLogItem(name string, addr Hash) (bool, error) {
 	queryString := fmt.Sprintf("select count(hash) from log_entry where hex(hash) == '%X'\n", addr)
 	rows, err := conn.db.Query(queryString)
 	if err != nil {
