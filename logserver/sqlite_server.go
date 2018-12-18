@@ -16,14 +16,33 @@ func NewSqliteServer(db *sql.DB) *SqliteServer {
 	return &SqliteServer{db: db}
 }
 
+// ReadRecords will retrieive the metadat of records with specified
+// hashes from the database.
+func (s *SqliteServer) ReadMetadata(hashes []gdp.Hash) ([]gdp.Metadatum, error) {
+	hexHashes := make([]string, 0, len(hashes))
+	for _, hash := range hashes {
+		hexHashes = append(hexHashes, fmt.Sprintf("\"%X\"", hash))
+	}
+
+	queryString := fmt.Sprintf(
+		"SELECT hash, recno, timestamp, accuracy, prevhash, sig FROM log_entry WHERE hex(hash) IN (%s)",
+		strings.Join(hexHashes, ","),
+	)
+	fmt.Println(queryString)
+	rows, err := s.db.Query(queryString)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseMetadataRows(rows)
+}
+
 // ReadRecords will retrieive the records with specified hashes from
 // the database.
 func (s *SqliteServer) ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error) {
-	records := make([]gdp.Record, 0, len(hashes))
-
 	hexHashes := make([]string, 0, len(hashes))
-	for hash := range hashes {
-		hexHashes = append(hexHashes, fmt.Sprintf("%X", hash))
+	for _, hash := range hashes {
+		hexHashes = append(hexHashes, fmt.Sprintf("\"%X\"", hash))
 	}
 
 	queryString := fmt.Sprintf(
@@ -35,7 +54,7 @@ func (s *SqliteServer) ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error) {
 		return nil, err
 	}
 
-	err = parseRecordRows(rows, records)
+	records, err := parseRecordRows(rows)
 	if err != nil {
 		return nil, err
 	}
@@ -44,8 +63,24 @@ func (s *SqliteServer) ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error) {
 }
 
 // ReadAllRecords will retrieve all records from the database.
+func (s *SqliteServer) ReadAllMetadata() ([]gdp.Metadatum, error) {
+	queryString := "SELECT hash, recno, timestamp, accuracy, prevhash, sig FROM log_entry"
+
+	rows, err := s.db.Query(queryString)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata, err := parseMetadataRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return metadata, nil
+}
+
+// ReadAllRecords will retrieve all records from the database.
 func (s *SqliteServer) ReadAllRecords() ([]gdp.Record, error) {
-	var records []gdp.Record
 	queryString := "SELECT hash, recno, timestamp, accuracy, prevhash, value, sig FROM log_entry"
 
 	rows, err := s.db.Query(queryString)
@@ -53,7 +88,7 @@ func (s *SqliteServer) ReadAllRecords() ([]gdp.Record, error) {
 		return nil, err
 	}
 
-	err = parseRecordRows(rows, records)
+	records, err := parseRecordRows(rows)
 	if err != nil {
 		return nil, err
 	}

@@ -11,6 +11,8 @@ func main() {
 }
 
 type LogServer interface {
+	ReadMetadata(hashes []gdp.Hash) ([]gdp.Metadatum, error)
+	ReadAllMetadata() ([]gdp.Metadatum, error)
 	ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error)
 	ReadAllRecords() ([]gdp.Record, error)
 	WriteRecords(records []gdp.Record) error
