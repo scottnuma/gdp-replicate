@@ -24,6 +24,7 @@ func TestSqliteReadRecords(t *testing.T) {
 func logServerTest(t *testing.T, logServer LogServer) {
 	testMetadataReading(t, logServer)
 	testRecordReading(t, logServer)
+	testWriting(t, logServer)
 
 }
 
@@ -55,4 +56,30 @@ func testMetadataReading(t *testing.T, logServer LogServer) {
 	metadata, err = logServer.ReadMetadata(hashes)
 	assert.Nil(t, err)
 	assert.Equal(t, 3, len(metadata))
+}
+
+func testWriting(t *testing.T, logServer LogServer) {
+	metadata, err := logServer.ReadAllMetadata()
+	assert.Nil(t, err)
+	numRecords := len(metadata)
+
+	records := []gdp.Record{
+		gdp.Record{
+			Metadatum: gdp.Metadatum{
+				Hash:      gdp.Hash{},
+				RecNo:     1,
+				Timestamp: 2,
+				Accuracy:  3.0,
+				PrevHash:  gdp.Hash{},
+				Sig:       []byte{},
+			},
+			Value: []byte{},
+		},
+	}
+
+	assert.Nil(t, logServer.WriteRecords(records))
+
+	metadata, err = logServer.ReadAllMetadata()
+	assert.Nil(t, err)
+	assert.Equal(t, numRecords+1, len(metadata))
 }

@@ -98,5 +98,27 @@ func (s *SqliteServer) ReadAllRecords() ([]gdp.Record, error) {
 
 // WriteRecords will write all records to the database.
 func (s *SqliteServer) WriteRecords(records []gdp.Record) error {
-	return nil
+	valueStrings := make([]string, 0, len(records))
+	valueArgs := make([]interface{}, 0, len(records)*7)
+	for _, record := range records {
+		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?)")
+		valueArgs = append(
+			valueArgs,
+			record.Hash[:],
+			record.RecNo,
+			record.Timestamp,
+			record.Accuracy,
+			record.PrevHash[:],
+			record.Value,
+			record.Sig,
+		)
+	}
+
+	insertString := fmt.Sprintf(
+		"INSERT INTO log_entry (hash, recno, timestamp, accuracy, prevhash, value, sig) VALUES %s",
+		strings.Join(valueStrings, ","),
+	)
+	fmt.Println(insertString)
+	_, err := s.db.Exec(insertString, valueArgs...)
+	return err
 }
