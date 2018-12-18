@@ -20,6 +20,8 @@
 # binaries
 gdp-replicate
 
+example_db/
+
 *.pyc
 # Go dependencies
 vendor/
