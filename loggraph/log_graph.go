@@ -1,0 +1,30 @@
+package loggraph
+
+import (
+	"github.com/tonyyanga/gdp-replicate/gdp"
+)
+
+// LogGraphWrapper provides (and caches) typical usage of the Graph
+type LogGraph interface {
+
+	// Node map is a map with keys as all nodes found
+	GetNodeMap() map[gdp.Hash]bool
+
+	// The actual hash pointer map, which follows:
+	// A (oldest) <- B <- C (newest)
+	GetActualPtrMap() map[gdp.Hash]gdp.Hash
+
+	// The logical hash pointer map, which follows:
+	// A (oldest) -> B -> C (newest)
+	GetLogicalPtrMap() map[gdp.Hash][]gdp.Hash
+
+	// Nodes that have no entry in logical pointer map, e.g. C
+	GetLogicalEnds() []gdp.Hash
+
+	// Nodes that have dangling entries in the actual map
+	// E.g. [X] <- D but there is no entry for X in the actual map; D has a dangling entry
+	GetLogicalBegins() []gdp.Hash
+
+	// Accept a list of new log items
+	AcceptNewLogEntries(entries []gdp.Record)
+}

@@ -2,6 +2,8 @@ package gdp
 
 type Hash [32]byte
 
+var NullHash = Hash{}
+
 type Record struct {
 	Metadatum
 	Value []byte
