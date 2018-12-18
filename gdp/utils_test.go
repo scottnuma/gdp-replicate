@@ -8,13 +8,15 @@ import (
 
 func TestRecordSerialization(t *testing.T) {
 	record := &Record{
-		Hash:      hash{},
-		RecNo:     1,
-		Timestamp: 2,
-		Accuracy:  3.4,
-		PrevHash:  hash{},
-		Value:     []byte{},
-		Sig:       []byte{},
+		Metadatum: Metadatum{
+			Hash:      Hash{},
+			RecNo:     1,
+			Timestamp: 2,
+			Accuracy:  3.4,
+			PrevHash:  Hash{},
+			Sig:       []byte{},
+		},
+		Value: []byte{},
 	}
 
 	recordBytes, err := record.MarshalBinary()

@@ -3,6 +3,10 @@ package gdp
 type Hash [32]byte
 
 type Record struct {
+	Metadatum
+	Value []byte
+}
+type Metadatum struct {
 	Hash      Hash
 	RecNo     int
 	Timestamp int64
