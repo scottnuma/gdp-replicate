@@ -3,7 +3,9 @@ package daemon
 import (
 	"database/sql"
 
-	"github.com/tonyyanga/gdp-replicate/gdplogd"
+	"github.com/tonyyanga/gdp-replicate/gdp"
+	"github.com/tonyyanga/gdp-replicate/loggraph"
+	"github.com/tonyyanga/gdp-replicate/logserver"
 	"github.com/tonyyanga/gdp-replicate/peers"
 	"github.com/tonyyanga/gdp-replicate/policy"
 	"go.uber.org/zap"
@@ -11,79 +13,44 @@ import (
 
 type Daemon struct {
 	httpAddr string
-	myAddr   gdplogd.Hash
-	network  peers.ReplicateNetworkMgr
+	myAddr   gdp.Hash
+	network  peers.ReplicationServer
 	policy   policy.Policy
-	conn     gdplogd.LogDaemonConnection
+
 	// Controls the randomness of sending heart beats to peers
 	heartBeatState int
-	peerList       []gdplogd.Hash
+	peerList       []gdp.Hash
 }
 
 // NewDaemon initializes Daemon for a log
-func NewDaemon(
-	httpAddr,
-	sqlFile string,
-	myHashAddr gdplogd.Hash,
-	peerAddrMap map[gdplogd.Hash]string,
-) (Daemon, error) {
-	db, err := sql.Open("sqlite3", sqlFile)
-	if err != nil {
-		return Daemon{}, err
-	}
-
-	conn, err := gdplogd.InitLogDaemonConnector(db, "default")
-	if err != nil {
-		return Daemon{}, err
-	}
-
-	graph, err := conn.GetGraph("default")
-	if err != nil {
-		return Daemon{}, err
-	}
-	policy := policy.NewGraphDiffPolicy(conn, "policy-name", graph)
-
-	// Create list of peers
-	peerList := make([]gdplogd.Hash, 0)
-	for peer := range peerAddrMap {
-		peerList = append(peerList, peer)
-	}
-
-	return Daemon{
-		httpAddr:       httpAddr,
-		myAddr:         myHashAddr,
-		network:        peers.NewSimpleReplicateMgr(peerAddrMap),
-		policy:         policy,
-		conn:           conn,
-		heartBeatState: 0,
-		peerList:       peerList,
-	}, nil
-}
-
-// NewNaiveDaemon initializes Daemon for a log with the naive algorithm
 func NewNaiveDaemon(
 	httpAddr,
 	sqlFile string,
-	myHashAddr gdplogd.Hash,
-	peerAddrMap map[gdplogd.Hash]string,
-) (Daemon, error) {
+	myHashAddr gdp.Hash,
+	peerAddrMap map[gdp.Hash]string,
+) (*Daemon, error) {
 	db, err := sql.Open("sqlite3", sqlFile)
 	if err != nil {
-		return Daemon{}, err
+		return nil, err
 	}
 
-	policy := policy.NewNaivePolicy(db, "policy-name")
+	logServer := logserver.NewSqliteServer(db)
+	logGraph, err := loggraph.NewSimpleGraph(logServer)
+	if err != nil {
+		return nil, err
+	}
+	policy := policy.NewNaivePolicy(logGraph)
 
 	// Create list of peers
-	peerList := make([]gdplogd.Hash, 0)
+	peerList := make([]gdp.Hash, 0)
 	for peer := range peerAddrMap {
 		peerList = append(peerList, peer)
 	}
 
-	return Daemon{
+	return &Daemon{
 		httpAddr:       httpAddr,
 		myAddr:         myHashAddr,
-		network:        peers.NewSimpleReplicateMgr(peerAddrMap),
+		network:        peers.NewGobServer(myHashAddr, peerAddrMap),
 		policy:         policy,
 		heartBeatState: 0,
 		peerList:       peerList,
@@ -95,11 +62,19 @@ func (daemon Daemon) Start(fanoutDegree int) error {
 	zap.S().Info("starting daemon")
 	go daemon.scheduleHeartBeat(500, daemon.fanOutHeartBeat(fanoutDegree))
 
-	handler := func(src gdplogd.Hash, msg *policy.Message) {
-		returnMsg := daemon.policy.ProcessMessage(msg, src)
+	handler := func(src gdp.Hash, msg interface{}) {
+		returnMsg, err := daemon.policy.ProcessMessage(src, msg)
+		if err != nil {
+			zap.S().Errorw(
+				"failed to process msg",
+				"msg", msg,
+				"error", err,
+			)
+			return
+		}
 
 		if returnMsg != nil {
-			go daemon.network.Send(daemon.myAddr, src, returnMsg)
+			daemon.network.Send(src, returnMsg)
 		}
 	}
 
