@@ -108,10 +108,20 @@ func (graph *SimpleGraph) GetLogicalBegins() []gdp.Hash {
 	return starts
 }
 
-func (graph *SimpleGraph) AcceptNewLogEntries(records []gdp.Record) {
+func (graph *SimpleGraph) WriteRecords(records []gdp.Record) error {
+	err := graph.logServer.WriteRecords(records)
+	if err != nil {
+		return err
+	}
+
 	metadata := make([]gdp.Metadatum, 0, len(records))
 	for _, record := range records {
 		metadata = append(metadata, record.Metadatum)
 	}
 	graph.addMetadata(metadata)
+	return nil
+}
+
+func (graph *SimpleGraph) ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error) {
+	return graph.logServer.ReadRecords(hashes)
 }

@@ -4,7 +4,8 @@ import (
 	"github.com/tonyyanga/gdp-replicate/gdp"
 )
 
-// LogGraphWrapper provides (and caches) typical usage of the Graph
+// LogGraph provides an abstracted view of records in the database.
+// Users of LogGraph should not have to interface with LogServer.
 type LogGraph interface {
 
 	// Node map is a map with keys as all nodes found
@@ -25,6 +26,9 @@ type LogGraph interface {
 	// E.g. [X] <- D but there is no entry for X in the actual map; D has a dangling entry
 	GetLogicalBegins() []gdp.Hash
 
-	// Accept a list of new log items
-	AcceptNewLogEntries(entries []gdp.Record)
+	// WriteRecords writes new records to the log server
+	WriteRecords(records []gdp.Record) error
+
+	// ReadRecords returns records with hashes
+	ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error)
 }

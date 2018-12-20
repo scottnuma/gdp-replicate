@@ -5,13 +5,16 @@ import (
 
 	"github.com/tonyyanga/gdp-replicate/gdp"
 	"github.com/tonyyanga/gdp-replicate/loggraph"
-	"github.com/tonyyanga/gdp-replicate/logserver"
 	"go.uber.org/zap"
 )
 
-var errInconsistentStateAndMsgNum = errors.New(
-	"expected different msg num based on state",
-)
+// NaivePolicy provides a naive approach to replication through the
+// brute force comparison of the hash sets on two peers.
+type NaivePolicy struct {
+	logGraph loggraph.LogGraph
+	name     string
+	myState  map[gdp.Hash]PeerState
+}
 
 // NaiveMsgContent holds all communication info for naive policy
 // peers. All fields are labelled from the perspective of a
@@ -25,8 +28,8 @@ type NaiveMsgContent struct {
 	RecordsWeWant   []gdp.Record
 }
 
-// PeerStates
-
+// PeerState describes the state of each peer and what messages they
+// expect.
 type PeerState int
 
 const (
@@ -35,6 +38,7 @@ const (
 	receiveHeartBeat = 2
 )
 
+// types of messages
 const (
 	first  = 0
 	second = 1
@@ -42,25 +46,24 @@ const (
 	fourth = 3
 )
 
-type NaivePolicy struct {
-	logGraph  loggraph.LogGraph
-	logServer logserver.LogServer
-	name      string
-	myState   map[gdp.Hash]PeerState
-}
+var (
+	errInconsistentStateAndMsgNum = errors.New(
+		"expected different msg num based on state",
+	)
+	errNaiveMsgContentConversion = errors.New(
+		"Unable to cast packedMsg to *NaiveMsgContent",
+	)
+)
 
-var errNaiveMsgContentConversion = errors.New("Unable to cast packedMsg to *NaiveMsgContent")
-
-func (policy *NaivePolicy) GenerateMessage(dest gdp.Hash) (*NaiveMsgContent, error) {
+func (policy *NaivePolicy) GenerateMessage(
+	dest gdp.Hash,
+) (*NaiveMsgContent, error) {
 	policy.initPeerIfNeeded(dest)
 
 	msg := &NaiveMsgContent{}
-
-	// Write every hash into message
 	msg.HashesAll = policy.getAllLogHashes()
 	msg.MsgNum = first
 
-	// change my state to initHeartBeat right before send
 	policy.myState[dest] = initHeartBeat
 	return msg, nil
 }
@@ -112,7 +115,7 @@ func (policy *NaivePolicy) processFirstMsg(
 	onlyMine, onlyTheirs := findDifferences(myHashes, msg.HashesAll)
 
 	// load the logs with hashes that only I have
-	onlyMyLogs, err := policy.logServer.ReadRecords(onlyMine)
+	onlyMyLogs, err := policy.logGraph.ReadRecords(onlyMine)
 	if err != nil {
 		return nil, err
 	}
@@ -135,13 +138,15 @@ func (policy *NaivePolicy) processSecondMsg(
 
 	var err error
 	resp := &NaiveMsgContent{MsgNum: third}
-	resp.RecordsWeWant, err = policy.logServer.ReadRecords(msg.HashesTheyWant)
+	resp.RecordsWeWant, err = policy.logGraph.ReadRecords(
+		msg.HashesTheyWant,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	// save received data
-	err = policy.logServer.WriteRecords(msg.RecordsWeWant)
+	err = policy.logGraph.WriteRecords(msg.RecordsWeWant)
 	if err != nil {
 		zap.S().Errorw(
 			"Failed to save given logs",
@@ -161,7 +166,7 @@ func (policy *NaivePolicy) processThirdMsg(
 ) (*NaiveMsgContent, error) {
 	zap.S().Debug("processing third msg")
 
-	err := policy.logServer.WriteRecords(msg.RecordsWeWant)
+	err := policy.logGraph.WriteRecords(msg.RecordsWeWant)
 	if err != nil {
 		return nil, err
 	}
@@ -171,15 +176,13 @@ func (policy *NaivePolicy) processThirdMsg(
 }
 
 func NewNaivePolicy(
-	logServer logserver.LogServer,
 	logGraph loggraph.LogGraph,
 	name string,
 ) *NaivePolicy {
 	return &NaivePolicy{
-		logServer: logServer,
-		logGraph:  logGraph,
-		name:      name,
-		myState:   make(map[gdp.Hash]PeerState),
+		logGraph: logGraph,
+		name:     name,
+		myState:  make(map[gdp.Hash]PeerState),
 	}
 }
 
