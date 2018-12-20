@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/tonyyanga/gdp-replicate/daemon"
-	"github.com/tonyyanga/gdp-replicate/gdplogd"
+	"github.com/tonyyanga/gdp-replicate/gdp"
 	"go.uber.org/zap"
 )
 
@@ -19,7 +19,7 @@ func main() {
 	sqlFile := os.Args[1]
 
 	listenAddr := os.Args[2]
-	selfGDPAddr := sha256.Sum256([]byte(listenAddr))
+	selfGDPAddr := gdp.GenerateHash(listenAddr)
 
 	daemon.InitLogger(selfGDPAddr)
 	peerMap := parsePeers(os.Args[3])
@@ -29,11 +29,11 @@ func main() {
 		panic("unable to parse fanout degree")
 	}
 
-	var d daemon.Daemon
+	var d *daemon.Daemon
 	if len(os.Args) >= 6 && os.Args[5] == "naive" {
 		d, err = daemon.NewNaiveDaemon(listenAddr, sqlFile, selfGDPAddr, peerMap)
 	} else {
-		d, err = daemon.NewDaemon(listenAddr, sqlFile, selfGDPAddr, peerMap)
+		panic("Regular daemon not supported rn")
 	}
 
 	if err != nil {
@@ -49,8 +49,8 @@ func main() {
 
 // parsePeers parses a comma delimited string of IP:ports to a map from
 // GDP addr to IP addr.
-func parsePeers(peers string) map[gdplogd.Hash]string {
-	peerMap := make(map[gdplogd.Hash]string)
+func parsePeers(peers string) map[gdp.Hash]string {
+	peerMap := make(map[gdp.Hash]string)
 	peerAddrs := strings.Split(peers, ",")
 	for _, peerAddr := range peerAddrs {
 		peerGDPAddr := sha256.Sum256([]byte(peerAddr))
@@ -60,7 +60,7 @@ func parsePeers(peers string) map[gdplogd.Hash]string {
 	for gdpAddr, httpAddr := range peerMap {
 		zap.S().Infow(
 			"Added peer",
-			"gdpAddr", gdplogd.ReadableAddr(gdpAddr),
+			"gdpAddr", gdpAddr.Readable(),
 			"httpAddr", httpAddr,
 		)
 	}
