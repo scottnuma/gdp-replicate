@@ -66,11 +66,22 @@ func testWriting(t *testing.T, logServer LogServer) {
 	records := []gdp.Record{
 		gdp.Record{
 			Metadatum: gdp.Metadatum{
-				Hash:      gdp.Hash{},
+				Hash:      gdp.GenerateHash("okay"),
 				RecNo:     1,
 				Timestamp: 2,
 				Accuracy:  3.0,
-				PrevHash:  gdp.Hash{},
+				PrevHash:  gdp.GenerateHash("sure"),
+				Sig:       []byte{},
+			},
+			Value: []byte{},
+		},
+		gdp.Record{
+			Metadatum: gdp.Metadatum{
+				Hash:      gdp.GenerateHash("sure"),
+				RecNo:     2,
+				Timestamp: 3,
+				Accuracy:  4.0,
+				PrevHash:  gdp.GenerateHash("thing"),
 				Sig:       []byte{},
 			},
 			Value: []byte{},
@@ -81,5 +92,5 @@ func testWriting(t *testing.T, logServer LogServer) {
 
 	metadata, err = logServer.ReadAllMetadata()
 	assert.Nil(t, err)
-	assert.Equal(t, numRecords+1, len(metadata))
+	assert.Equal(t, numRecords+2, len(metadata))
 }

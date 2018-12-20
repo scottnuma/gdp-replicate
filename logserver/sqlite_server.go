@@ -110,12 +110,19 @@ func (s *SqliteServer) WriteRecords(records []gdp.Record) error {
 		return nil
 	}
 
-	valueStrings := make([]string, 0, len(records))
-	valueArgs := make([]interface{}, 0, len(records)*7)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("INSERT INTO log_entry (hash, recno, timestamp, accuracy, prevhash, value, sig) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
 	for _, record := range records {
-		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?)")
-		valueArgs = append(
-			valueArgs,
+		_, err = stmt.Exec(
 			record.Hash[:],
 			record.RecNo,
 			record.Timestamp,
@@ -124,13 +131,15 @@ func (s *SqliteServer) WriteRecords(records []gdp.Record) error {
 			record.Value,
 			record.Sig,
 		)
+		if err != nil {
+			return err
+		}
+
 	}
 
-	insertString := fmt.Sprintf(
-		"INSERT INTO log_entry (hash, recno, timestamp, accuracy, prevhash, value, sig) VALUES %s",
-		strings.Join(valueStrings, ","),
-	)
-	fmt.Println(insertString)
-	_, err := s.db.Exec(insertString, valueArgs...)
-	return err
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+	return nil
 }
