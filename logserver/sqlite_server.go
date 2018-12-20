@@ -19,6 +19,10 @@ func NewSqliteServer(db *sql.DB) *SqliteServer {
 // ReadRecords will retrieive the metadat of records with specified
 // hashes from the database.
 func (s *SqliteServer) ReadMetadata(hashes []gdp.Hash) ([]gdp.Metadatum, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+
 	hexHashes := make([]string, 0, len(hashes))
 	for _, hash := range hashes {
 		hexHashes = append(hexHashes, fmt.Sprintf("\"%X\"", hash))
@@ -40,6 +44,10 @@ func (s *SqliteServer) ReadMetadata(hashes []gdp.Hash) ([]gdp.Metadatum, error) 
 // ReadRecords will retrieive the records with specified hashes from
 // the database.
 func (s *SqliteServer) ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+
 	hexHashes := make([]string, 0, len(hashes))
 	for _, hash := range hashes {
 		hexHashes = append(hexHashes, fmt.Sprintf("\"%X\"", hash))
@@ -98,6 +106,10 @@ func (s *SqliteServer) ReadAllRecords() ([]gdp.Record, error) {
 
 // WriteRecords will write all records to the database.
 func (s *SqliteServer) WriteRecords(records []gdp.Record) error {
+	if len(records) == 0 {
+		return nil
+	}
+
 	valueStrings := make([]string, 0, len(records))
 	valueArgs := make([]interface{}, 0, len(records)*7)
 	for _, record := range records {

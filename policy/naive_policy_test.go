@@ -1,171 +1,84 @@
 package policy
 
 import (
-	"bytes"
 	"database/sql"
-	"encoding/gob"
-	"encoding/json"
-	"io/ioutil"
+	"fmt"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
-	"github.com/tonyyanga/gdp-replicate/gdplogd"
+	"github.com/tonyyanga/gdp-replicate/gdp"
+	"github.com/tonyyanga/gdp-replicate/loggraph"
+	"github.com/tonyyanga/gdp-replicate/logserver"
 )
 
-const SQL_FILE = "/home/scott/go/src/github.com/tonyyanga/gdp-replicate/gdplogd/sample.glog"
+const DB_LOC = "/home/scott/go/src/github.com/tonyyanga/gdp-replicate/benchmark/example_db/%s.glob"
 
-func TestGetAllLogHashes(t *testing.T) {
-	db, err := sql.Open("sqlite3", SQL_FILE)
+func policyFromFile(t *testing.T, dbName string) *NaivePolicy {
+	sqlFile := fmt.Sprintf(DB_LOC, dbName)
+	fmt.Printf(sqlFile)
+	db, err := sql.Open("sqlite3", sqlFile)
 	assert.Nil(t, err)
-	defer db.Close()
 
-	hashes, err := GetAllLogHashes(db)
+	logServer := logserver.NewSqliteServer(db)
+	logGraph, err := loggraph.NewSimpleGraph(logServer)
 	assert.Nil(t, err)
-	assert.NotEqual(t, 0, len(hashes))
-	for hash := range hashes {
-		t.Logf("%X\n", hash)
-	}
-}
 
-func aTestWriteLogEntry(t *testing.T) {
-	db, err := sql.Open("sqlite3", SQL_FILE)
-	assert.Nil(t, err)
-	defer db.Close()
-
-	logEntries := []LogEntry{
-		LogEntry{
-			Hash:      gdplogd.Hash{},
-			RecNo:     1,
-			Timestamp: 2,
-			Accuracy:  2,
-			PrevHash:  gdplogd.Hash{},
-			Value:     []byte{},
-			Sig:       []byte{},
-		},
-	}
-	assert.Nil(t, WriteLogEntries(db, logEntries))
-}
-
-func TestReadLogEntry(t *testing.T) {
-	db, err := sql.Open("sqlite3", SQL_FILE)
-	assert.Nil(t, err)
-	defer db.Close()
-
-	logEntry, err := GetLogEntry(db, gdplogd.Hash{})
-	assert.Nil(t, err)
-	assert.Equal(t, 1, logEntry.RecNo)
-}
-
-func TestBinaryConversion(t *testing.T) {
-	hash := gdplogd.Hash{}
-	hash[0] = 1
-	prevHash := gdplogd.Hash{}
-	prevHash[1] = 1
-	logEntry := LogEntry{
-		Hash:      hash,
-		RecNo:     1,
-		Timestamp: 2,
-		Accuracy:  2,
-		PrevHash:  prevHash,
-		Value:     []byte{},
-		Sig:       []byte{},
-	}
-	newLogEntry := LogEntry{}
-	data, err := logEntry.MarshalBinary()
-
-	assert.Nil(t, err)
-	assert.Nil(t, newLogEntry.UnmarshalBinary(data))
-	assert.Equal(t, logEntry.Hash, newLogEntry.Hash)
-	assert.Equal(t, logEntry.PrevHash, newLogEntry.PrevHash)
-	lgs := []LogEntry{logEntry}
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	assert.Nil(t, enc.Encode(lgs))
-}
-
-func TestSecondMessageContentConversion(t *testing.T) {
-	hash := gdplogd.Hash{}
-	hash[0] = 1
-	prevHash := gdplogd.Hash{}
-	prevHash[1] = 1
-	logEntry := LogEntry{
-		Hash:      hash,
-		RecNo:     1,
-		Timestamp: 2,
-		Accuracy:  2,
-		PrevHash:  prevHash,
-		Value:     []byte{},
-		Sig:       []byte{},
-	}
-	s := SecondMsgContent{
-		[]LogEntry{logEntry},
-		[]gdplogd.Hash{hash, prevHash},
-	}
-
-	b, err := json.Marshal(s)
-	sPrime := SecondMsgContent{}
-	err = json.Unmarshal(b, &sPrime)
-	assert.Nil(t, err)
-	assert.Equal(t, sPrime.LogEntries[0].RecNo, 1)
-	assert.Equal(t, len(sPrime.LogEntries), 1)
-	assert.Equal(t, len(sPrime.Hashes), 2)
-	assert.Equal(t, sPrime.Hashes[0], hash)
-	assert.NotEqual(t, sPrime.Hashes[0], prevHash)
+	return NewNaivePolicy(logGraph, "default")
 }
 
 func TestGenerateMessage(t *testing.T) {
-	db, err := sql.Open("sqlite3", SQL_FILE)
+	policyLong := policyFromFile(t, "simple_long")
+	policyShort := policyFromFile(t, "simple_short")
+
+	dest := gdp.NullHash
+	assert.Equal(t, resting, policyLong.myState[dest])
+	assert.Equal(t, resting, policyShort.myState[dest])
+
+	msg, err := policyLong.GenerateMessage(dest)
 	assert.Nil(t, err)
+	assert.Equal(t, first, msg.MsgNum)
+	assert.Equal(t, 5, len(msg.HashesAll))
+	printHashes(msg.HashesAll)
+	assert.Equal(t, initHeartBeat, policyLong.myState[dest])
 
-	policy := NewNaivePolicy(db, "default")
-
-	var dest gdplogd.Hash
-	msg := policy.GenerateMessage(dest)
-	bytesRead, err := ioutil.ReadAll(msg.Body)
+	msg, err = policyShort.ProcessMessage(gdp.NullHash, msg)
 	assert.Nil(t, err)
+	assert.Equal(t, second, msg.MsgNum)
 
-	var firstMessageContent FirstMsgContent
-	assert.Nil(t, json.Unmarshal(bytesRead, &firstMessageContent))
-	assert.Equal(t, 9, len(firstMessageContent.Hashes))
+	printHashes(msg.HashesTheyWant)
+	assert.Equal(t, 3, len(msg.HashesTheyWant))
+	assert.Equal(t, 0, len(msg.RecordsWeWant))
+	assert.Equal(t, receiveHeartBeat, policyShort.myState[dest])
+
+	msg, err = policyLong.ProcessMessage(gdp.NullHash, msg)
+	assert.Nil(t, err)
+	assert.Equal(t, third, msg.MsgNum)
+	assert.Equal(t, 3, len(msg.RecordsWeWant))
+	assert.Equal(t, resting, policyLong.myState[dest])
+
+	msg, err = policyShort.ProcessMessage(gdp.NullHash, msg)
+	assert.Nil(t, err)
+	assert.Nil(t, msg)
+	assert.Equal(t, resting, policyShort.myState[dest])
+
+	msg, err = policyShort.GenerateMessage(gdp.NullHash)
+	assert.Nil(t, err)
+	assert.Equal(t, first, msg.MsgNum)
+	assert.Equal(t, 5, len(msg.HashesAll))
+	assert.Equal(t, initHeartBeat, policyShort.myState[gdp.NullHash])
+
+	msg, err = policyLong.ProcessMessage(gdp.NullHash, msg)
+	assert.Nil(t, err)
+	assert.Equal(t, second, msg.MsgNum)
+	assert.Equal(t, 0, len(msg.HashesTheyWant))
+	assert.Equal(t, 0, len(msg.RecordsWeWant))
+	assert.Equal(t, receiveHeartBeat, policyLong.myState[dest])
 }
 
-func TestProcessFirstMsg(t *testing.T) {
-	db, err := sql.Open("sqlite3", SQL_FILE)
-	assert.Nil(t, err)
-
-	policy := NewNaivePolicy(db, "default")
-	var addr gdplogd.Hash
-	firstMsg := policy.GenerateMessage(addr)
-	secondMsg := policy.processFirstMsg(firstMsg, addr)
-
-	bytesRead, err := ioutil.ReadAll(secondMsg.Body)
-	assert.Nil(t, err)
-	secondMessageContent := SecondMsgContent{}
-	assert.Nil(t, json.Unmarshal(bytesRead, &secondMessageContent))
-	assert.Equal(t, 0, len(secondMessageContent.LogEntries))
-	assert.Equal(t, 0, len(secondMessageContent.Hashes))
-}
-
-func TestExchange(t *testing.T) {
-	dbA, err := sql.Open("sqlite3", "/tmp/gdp/simple_long.glob")
-	assert.Nil(t, err)
-	dbB, err := sql.Open("sqlite3", "/tmp/gdp/simple_short.glob")
-	assert.Nil(t, err)
-	policyA := NewNaivePolicy(dbA, "A")
-	hashA := gdplogd.Hash{}
-	hashA[0] = 1
-	policyB := NewNaivePolicy(dbB, "B")
-	hashB := gdplogd.Hash{}
-	hashB[1] = 1
-	firstMsg := policyA.GenerateMessage(hashB)
-
-	// do checks on msgA
-	assert.Equal(t, PeerState(initHeartBeat), policyA.myState[hashB])
-	assert.NotNil(t, firstMsg)
-
-	secondMsg := policyB.ProcessMessage(firstMsg, hashA)
-	assert.NotNil(t, secondMsg)
-	assert.Equal(t, PeerState(receiveHeartBeat), policyB.myState[hashA])
-
-	assert.NotNil(t, policyB)
+func printHashes(hashes []gdp.Hash) {
+	fmt.Println(len(hashes))
+	for _, hash := range hashes {
+		fmt.Println(hash.Readable())
+	}
 }

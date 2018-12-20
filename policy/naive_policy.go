@@ -33,9 +33,9 @@ type NaiveMsgContent struct {
 type PeerState int
 
 const (
-	resting          = 0
-	initHeartBeat    = 1
-	receiveHeartBeat = 2
+	resting          PeerState = 0
+	initHeartBeat    PeerState = 1
+	receiveHeartBeat PeerState = 2
 )
 
 // types of messages
