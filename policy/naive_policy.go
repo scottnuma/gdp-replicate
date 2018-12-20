@@ -1,16 +1,33 @@
 package policy
 
 import (
-	"bytes"
-	"database/sql"
-	"encoding/json"
-	"io/ioutil"
+	"errors"
 
-	"github.com/tonyyanga/gdp-replicate/gdplogd"
+	"github.com/tonyyanga/gdp-replicate/gdp"
+	"github.com/tonyyanga/gdp-replicate/loggraph"
+	"github.com/tonyyanga/gdp-replicate/logserver"
 	"go.uber.org/zap"
 )
 
+var errInconsistentStateAndMsgNum = errors.New(
+	"expected different msg num based on state",
+)
+
+// NaiveMsgContent holds all communication info for naive policy
+// peers. All fields are labelled from the perspective of a
+// receiver.
+type NaiveMsgContent struct {
+	MsgNum          int
+	HashesAll       []gdp.Hash
+	HashesTheyWant  []gdp.Hash
+	HashesWeWant    []gdp.Hash
+	RecordsTheyWant []gdp.Record
+	RecordsWeWant   []gdp.Record
+}
+
 // PeerStates
+
+type PeerState int
 
 const (
 	resting          = 0
@@ -18,218 +35,155 @@ const (
 	receiveHeartBeat = 2
 )
 
+const (
+	first  = 0
+	second = 1
+	third  = 2
+	fourth = 3
+)
+
 type NaivePolicy struct {
-	db      *sql.DB
-	name    string
-	myState map[gdplogd.Hash]PeerState
+	logGraph  loggraph.LogGraph
+	logServer logserver.LogServer
+	name      string
+	myState   map[gdp.Hash]PeerState
 }
 
-// Unused for NaivePolicy
-func (policy *NaivePolicy) getLogDaemonConnection() gdplogd.LogDaemonConnection {
-	return nil
-}
+var errNaiveMsgContentConversion = errors.New("Unable to cast packedMsg to *NaiveMsgContent")
 
-// Unused for NaivePolicy
-func (policy *NaivePolicy) UpdateCurrGraph() error {
-	return nil
-}
-
-func (policy *NaivePolicy) GenerateMessage(dest gdplogd.Hash) *Message {
+func (policy *NaivePolicy) GenerateMessage(dest gdp.Hash) (*NaiveMsgContent, error) {
 	policy.initPeerIfNeeded(dest)
 
-	// Write every hash into message
-	hashes, err := GetAllLogHashes(policy.db)
-	if err != nil {
-		zap.S().Errorw(
-			"Failed to read all log hashes from db",
-			"error", err.Error(),
-		)
-		return nil
-	}
+	msg := &NaiveMsgContent{}
 
-	firstMsgReader, err := encodeFirstMsg(hashes)
-	if err != nil {
-		zap.S().Errorw(
-			"Failed to encode log hashes",
-			"error", err.Error(),
-		)
-		return nil
-	}
+	// Write every hash into message
+	msg.HashesAll = policy.getAllLogHashes()
+	msg.MsgNum = first
 
 	// change my state to initHeartBeat right before send
 	policy.myState[dest] = initHeartBeat
-	return &Message{
-		Type: first,
-		Body: firstMsgReader,
-	}
+	return msg, nil
 }
 
 func (policy *NaivePolicy) ProcessMessage(
-	msg *Message,
-	src gdplogd.Hash,
-) *Message {
+	src gdp.Hash,
+	packedMsg interface{},
+) (*NaiveMsgContent, error) {
 	zap.S().Debugw(
 		"processing message",
-		"msg", msg,
-		"src", gdplogd.ReadableAddr(src),
+		"src", src.Readable(),
 	)
 	policy.initPeerIfNeeded(src)
 
 	myState := policy.myState[src]
 
-	if msg.Type == first && myState == resting {
-		return policy.processFirstMsg(msg, src)
-	} else if msg.Type == second && myState == initHeartBeat {
-		return policy.processSecondMsg(msg, src)
-	} else if msg.Type == third && myState == receiveHeartBeat {
-		return policy.processThirdMsg(msg, src)
+	msg, ok := packedMsg.(*NaiveMsgContent)
+	if !ok {
+		return nil, errNaiveMsgContentConversion
+	}
+
+	if myState == resting && msg.MsgNum == first {
+		return policy.processFirstMsg(src, msg)
+	} else if myState == initHeartBeat && msg.MsgNum == second {
+		return policy.processSecondMsg(src, msg)
+	} else if myState == receiveHeartBeat && msg.MsgNum == third {
+		return policy.processThirdMsg(src, msg)
 	} else {
+		zap.S().Errorw(
+			"expected different msg based on state",
+			"state", myState,
+			"msgNum", msg.MsgNum,
+		)
 		policy.myState[src] = resting
-		return nil
+		return nil, errInconsistentStateAndMsgNum
 	}
 }
 
-func (policy *NaivePolicy) processFirstMsg(msg *Message, src gdplogd.Hash) *Message {
+func (policy *NaivePolicy) processFirstMsg(
+	src gdp.Hash,
+	msg *NaiveMsgContent,
+) (*NaiveMsgContent, error) {
 	zap.S().Debug("processing first msg")
-	// read all their hashes
-	theirHashes, err := decodeFirstMsg(msg)
-	if err != nil {
-		zap.S().Errorw(
-			"Error decoding first msg",
-			"error", err.Error(),
-		)
-		policy.myState[src] = resting
-		return nil
-	}
 
 	// compute my hashes
-	myHashes, err := GetAllLogHashes(policy.db)
-	if err != nil {
-		zap.S().Errorw(
-			"Failed to read all log hashes from db",
-			"error", err.Error(),
-		)
-		policy.myState[src] = resting
-		return nil
-	}
+	myHashes := policy.getAllLogHashes()
 
 	// find the differences
-	onlyMine, onlyTheirs := findDifferences(myHashes, theirHashes)
+	onlyMine, onlyTheirs := findDifferences(myHashes, msg.HashesAll)
 
 	// load the logs with hashes that only I have
-	onlyMyLogs, err := GetLogEntries(policy.db, onlyMine)
+	onlyMyLogs, err := policy.logServer.ReadRecords(onlyMine)
+	if err != nil {
+		return nil, err
+	}
 
 	// send data, requests
-	secondMessageBytes, err := json.Marshal(SecondMsgContent{
-		LogEntries: onlyMyLogs,
-		Hashes:     onlyTheirs,
-	})
-
-	policy.myState[src] = receiveHeartBeat
-	return &Message{
-		Type: second,
-		Body: bytes.NewReader(secondMessageBytes),
+	responseContent := &NaiveMsgContent{
+		MsgNum:         second,
+		HashesTheyWant: onlyTheirs,
+		RecordsWeWant:  onlyMyLogs,
 	}
-
+	policy.myState[src] = receiveHeartBeat
+	return responseContent, nil
 }
 
-func (policy *NaivePolicy) processSecondMsg(msg *Message, src gdplogd.Hash) *Message {
+func (policy *NaivePolicy) processSecondMsg(
+	src gdp.Hash,
+	msg *NaiveMsgContent,
+) (*NaiveMsgContent, error) {
 	zap.S().Debug("processing second msg")
-	//parse Message
-	secondMsgLogEntries, secondMsgHashes, err := decodeSecondMsg(msg)
-	if err != nil {
-		zap.S().Errorw(
-			"Failed to read bytes from second message",
-			"error", err.Error(),
-		)
-		policy.myState[src] = resting
-		return nil
-	}
 
-	// load requests
-	requestedLogEntries, err := GetLogEntries(policy.db, secondMsgHashes)
+	var err error
+	resp := &NaiveMsgContent{MsgNum: third}
+	resp.RecordsWeWant, err = policy.logServer.ReadRecords(msg.HashesTheyWant)
 	if err != nil {
-		zap.S().Errorw(
-			"Failed to fetch requested logs",
-			"error", err.Error(),
-		)
-		policy.myState[src] = resting
-		return nil
+		return nil, err
 	}
 
 	// save received data
-	err = WriteLogEntries(policy.db, secondMsgLogEntries)
+	err = policy.logServer.WriteRecords(msg.RecordsWeWant)
 	if err != nil {
 		zap.S().Errorw(
 			"Failed to save given logs",
 			"error", err.Error(),
 		)
-		policy.myState[src] = resting
-		return nil
+		return nil, err
 	}
-
-	zap.S().Debugw("requesting log entries",
-		"numLogs", len(requestedLogEntries),
-	)
 
 	// send data for requests
-	thirdMsgBytes, err := json.Marshal(ThirdMsgContent{
-		LogEntries: requestedLogEntries,
-	})
 	policy.myState[src] = resting
-	return &Message{
-		Type: third,
-		Body: bytes.NewReader(thirdMsgBytes),
-	}
+	return resp, nil
 }
 
-func (policy *NaivePolicy) processThirdMsg(msg *Message, src gdplogd.Hash) *Message {
+func (policy *NaivePolicy) processThirdMsg(
+	src gdp.Hash,
+	msg *NaiveMsgContent,
+) (*NaiveMsgContent, error) {
 	zap.S().Debug("processing third msg")
 
-	// save receivved data
-	bytesRead, err := ioutil.ReadAll(msg.Body)
+	err := policy.logServer.WriteRecords(msg.RecordsWeWant)
 	if err != nil {
-		zap.S().Errorw(
-			"Failed to read bytes from third message",
-			"error", err.Error(),
-		)
-		policy.myState[src] = resting
-		return nil
-	}
-	thirdMsgContent := ThirdMsgContent{}
-	err = json.Unmarshal(bytesRead, &thirdMsgContent)
-	if err != nil {
-		zap.S().Errorw(
-			"Failed to decode bytes from third message",
-			"error", err.Error(),
-		)
-		policy.myState[src] = resting
-		return nil
-	}
-
-	err = WriteLogEntries(policy.db, thirdMsgContent.LogEntries)
-	if err != nil {
-		zap.S().Errorw(
-			"Failed to write provided logs to db",
-			"error", err.Error(),
-		)
-		policy.myState[src] = resting
-		return nil
+		return nil, err
 	}
 
 	policy.myState[src] = resting
-	return nil
+	return nil, nil
 }
 
-func NewNaivePolicy(db *sql.DB, name string) *NaivePolicy {
+func NewNaivePolicy(
+	logServer logserver.LogServer,
+	logGraph loggraph.LogGraph,
+	name string,
+) *NaivePolicy {
 	return &NaivePolicy{
-		db:      db,
-		name:    name,
-		myState: make(map[gdplogd.Hash]PeerState),
+		logServer: logServer,
+		logGraph:  logGraph,
+		name:      name,
+		myState:   make(map[gdp.Hash]PeerState),
 	}
 }
 
-func (policy *NaivePolicy) initPeerIfNeeded(peer gdplogd.Hash) {
+func (policy *NaivePolicy) initPeerIfNeeded(peer gdp.Hash) {
 	_, present := policy.myState[peer]
 	if !present {
 		policy.myState[peer] = resting

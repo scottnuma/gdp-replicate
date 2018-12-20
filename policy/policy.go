@@ -11,7 +11,7 @@ package policy
 import (
 	"io"
 
-	"github.com/tonyyanga/gdp-replicate/gdplogd"
+	"github.com/tonyyanga/gdp-replicate/gdp"
 )
 
 type MessageType int
@@ -33,17 +33,17 @@ type Policy interface {
 	// Get the LogDaemonConnection, implemention should support it
 	// Implementations can use this connection to retrieve specific
 	// data items from the graph
-	getLogDaemonConnection() gdplogd.LogDaemonConnection
+	// getLogDaemonConnection() gdplogd.LogDaemonConnection
 
 	// UpdateeCurrGraph updates the policy's view of the log
-	UpdateCurrGraph() error
+	// UpdateCurrGraph() error
 
 	// Generate message to be sent to a server at dest
 	// Used to begin the state machine with a peer at certain timeout
 	// Returns nil if a message exchange with the dest server is in progress
-	GenerateMessage(dest gdplogd.Hash) *Message
+	GenerateMessage(dest gdp.Hash) *Message
 
 	// Process a message from server at src and construct a return message
 	// If no message is needed, return nil
-	ProcessMessage(msg *Message, src gdplogd.Hash) *Message
+	ProcessMessage(msg *Message, src gdp.Hash) *Message
 }
