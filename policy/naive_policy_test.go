@@ -24,7 +24,7 @@ func policyFromFile(t *testing.T, dbName string) *NaivePolicy {
 	logGraph, err := loggraph.NewSimpleGraph(logServer)
 	assert.Nil(t, err)
 
-	return NewNaivePolicy(logGraph, "default")
+	return NewNaivePolicy(logGraph)
 }
 
 func TestGenerateMessage(t *testing.T) {
@@ -35,14 +35,16 @@ func TestGenerateMessage(t *testing.T) {
 	assert.Equal(t, resting, policyLong.myState[dest])
 	assert.Equal(t, resting, policyShort.myState[dest])
 
-	msg, err := policyLong.GenerateMessage(dest)
+	packedMsg, err := policyLong.GenerateMessage(dest)
+	msg := packedMsg.(*NaiveMsgContent)
 	assert.Nil(t, err)
 	assert.Equal(t, first, msg.MsgNum)
 	assert.Equal(t, 5, len(msg.HashesAll))
 	printHashes(msg.HashesAll)
 	assert.Equal(t, initHeartBeat, policyLong.myState[dest])
 
-	msg, err = policyShort.ProcessMessage(gdp.NullHash, msg)
+	packedMsg, err = policyShort.ProcessMessage(gdp.NullHash, msg)
+	msg = packedMsg.(*NaiveMsgContent)
 	assert.Nil(t, err)
 	assert.Equal(t, second, msg.MsgNum)
 
@@ -51,24 +53,28 @@ func TestGenerateMessage(t *testing.T) {
 	assert.Equal(t, 0, len(msg.RecordsWeWant))
 	assert.Equal(t, receiveHeartBeat, policyShort.myState[dest])
 
-	msg, err = policyLong.ProcessMessage(gdp.NullHash, msg)
+	packedMsg, err = policyLong.ProcessMessage(gdp.NullHash, msg)
+	msg = packedMsg.(*NaiveMsgContent)
 	assert.Nil(t, err)
 	assert.Equal(t, third, msg.MsgNum)
 	assert.Equal(t, 3, len(msg.RecordsWeWant))
 	assert.Equal(t, resting, policyLong.myState[dest])
 
-	msg, err = policyShort.ProcessMessage(gdp.NullHash, msg)
+	packedMsg, err = policyShort.ProcessMessage(gdp.NullHash, msg)
+	msg = packedMsg.(*NaiveMsgContent)
 	assert.Nil(t, err)
 	assert.Nil(t, msg)
 	assert.Equal(t, resting, policyShort.myState[dest])
 
-	msg, err = policyShort.GenerateMessage(gdp.NullHash)
+	packedMsg, err = policyShort.GenerateMessage(gdp.NullHash)
+	msg = packedMsg.(*NaiveMsgContent)
 	assert.Nil(t, err)
 	assert.Equal(t, first, msg.MsgNum)
 	assert.Equal(t, 5, len(msg.HashesAll))
 	assert.Equal(t, initHeartBeat, policyShort.myState[gdp.NullHash])
 
-	msg, err = policyLong.ProcessMessage(gdp.NullHash, msg)
+	packedMsg, err = policyLong.ProcessMessage(gdp.NullHash, msg)
+	msg = packedMsg.(*NaiveMsgContent)
 	assert.Nil(t, err)
 	assert.Equal(t, second, msg.MsgNum)
 	assert.Equal(t, 0, len(msg.HashesTheyWant))

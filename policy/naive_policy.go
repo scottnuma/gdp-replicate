@@ -12,8 +12,16 @@ import (
 // brute force comparison of the hash sets on two peers.
 type NaivePolicy struct {
 	logGraph loggraph.LogGraph
-	name     string
 	myState  map[gdp.Hash]PeerState
+}
+
+func NewNaivePolicy(
+	logGraph loggraph.LogGraph,
+) *NaivePolicy {
+	return &NaivePolicy{
+		logGraph: logGraph,
+		myState:  make(map[gdp.Hash]PeerState),
+	}
 }
 
 // NaiveMsgContent holds all communication info for naive policy
@@ -57,7 +65,7 @@ var (
 
 func (policy *NaivePolicy) GenerateMessage(
 	dest gdp.Hash,
-) (*NaiveMsgContent, error) {
+) (interface{}, error) {
 	policy.initPeerIfNeeded(dest)
 
 	msg := &NaiveMsgContent{}
@@ -71,7 +79,7 @@ func (policy *NaivePolicy) GenerateMessage(
 func (policy *NaivePolicy) ProcessMessage(
 	src gdp.Hash,
 	packedMsg interface{},
-) (*NaiveMsgContent, error) {
+) (interface{}, error) {
 	zap.S().Debugw(
 		"processing message",
 		"src", src.Readable(),
@@ -173,17 +181,6 @@ func (policy *NaivePolicy) processThirdMsg(
 
 	policy.myState[src] = resting
 	return nil, nil
-}
-
-func NewNaivePolicy(
-	logGraph loggraph.LogGraph,
-	name string,
-) *NaivePolicy {
-	return &NaivePolicy{
-		logGraph: logGraph,
-		name:     name,
-		myState:  make(map[gdp.Hash]PeerState),
-	}
 }
 
 func (policy *NaivePolicy) initPeerIfNeeded(peer gdp.Hash) {

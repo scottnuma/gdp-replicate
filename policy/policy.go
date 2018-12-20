@@ -41,9 +41,9 @@ type Policy interface {
 	// Generate message to be sent to a server at dest
 	// Used to begin the state machine with a peer at certain timeout
 	// Returns nil if a message exchange with the dest server is in progress
-	GenerateMessage(dest gdp.Hash) *Message
+	GenerateMessage(dest gdp.Hash) (interface{}, error)
 
 	// Process a message from server at src and construct a return message
 	// If no message is needed, return nil
-	ProcessMessage(msg *Message, src gdp.Hash) *Message
+	ProcessMessage(src gdp.Hash, packedMsg interface{}) (interface{}, error)
 }
