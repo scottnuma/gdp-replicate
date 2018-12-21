@@ -180,7 +180,7 @@ func (policy *NaivePolicy) processThirdMsg(
 	}
 
 	policy.myState[src] = resting
-	return nil, nil
+	return nil, ErrConversationFinished
 }
 
 func (policy *NaivePolicy) initPeerIfNeeded(peer gdp.Hash) {

@@ -3,6 +3,7 @@ package daemon
 import (
 	"database/sql"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/tonyyanga/gdp-replicate/gdp"
 	"github.com/tonyyanga/gdp-replicate/loggraph"
 	"github.com/tonyyanga/gdp-replicate/logserver"
@@ -29,6 +30,13 @@ func NewNaiveDaemon(
 	myHashAddr gdp.Hash,
 	peerAddrMap map[gdp.Hash]string,
 ) (*Daemon, error) {
+	zap.S().Infow(
+		"Initializing new naive daemon",
+		"httpAddr", httpAddr,
+		"sqlFile", sqlFile,
+		"gdpAddr", myHashAddr.Readable(),
+		"numPeers", len(peerAddrMap),
+	)
 	db, err := sql.Open("sqlite3", sqlFile)
 	if err != nil {
 		return nil, err
@@ -64,6 +72,12 @@ func (daemon Daemon) Start(fanoutDegree int) error {
 
 	handler := func(src gdp.Hash, msg interface{}) {
 		returnMsg, err := daemon.policy.ProcessMessage(src, msg)
+		if err == policy.ErrConversationFinished {
+			zap.S().Infow(
+				"heartbeat finished",
+			)
+			return
+		}
 		if err != nil {
 			zap.S().Errorw(
 				"failed to process msg",
@@ -73,9 +87,9 @@ func (daemon Daemon) Start(fanoutDegree int) error {
 			return
 		}
 
-		if returnMsg != nil {
-			daemon.network.Send(src, returnMsg)
-		}
+		// Daemon will always send content over the network,
+		// even if returnMsg is nil
+		daemon.network.Send(src, returnMsg)
 	}
 
 	err := daemon.network.ListenAndServe(daemon.httpAddr, handler)

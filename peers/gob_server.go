@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/tonyyanga/gdp-replicate/gdp"
+	"github.com/tonyyanga/gdp-replicate/policy"
 	"go.uber.org/zap"
 )
 
@@ -62,7 +63,7 @@ func (server *GobServer) ListenAndServe(
 			defer conn.Close()
 
 			dec := gob.NewDecoder(conn)
-
+			gob.Register(&policy.NaiveMsgContent{})
 			msg := &Message{}
 			err := dec.Decode(msg)
 			if err != nil {
@@ -70,6 +71,7 @@ func (server *GobServer) ListenAndServe(
 					"Failed to decode msg",
 					"error", err,
 				)
+				return
 			}
 			handler(msg.Sender, msg.Content)
 		}(conn)
@@ -101,7 +103,8 @@ func (server *GobServer) Send(peer gdp.Hash, content interface{}) error {
 	}
 
 	encoder := gob.NewEncoder(conn)
-	gob.Register(msg.Content)
+	gob.Register(&policy.NaiveMsgContent{})
+
 	return encoder.Encode(msg)
 }
 

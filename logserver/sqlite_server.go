@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/tonyyanga/gdp-replicate/gdp"
+	"go.uber.org/zap"
 )
 
 type SqliteServer struct {
@@ -141,5 +142,11 @@ func (s *SqliteServer) WriteRecords(records []gdp.Record) error {
 	if err != nil {
 		return err
 	}
+
+	zap.S().Infow(
+		"Wrote records",
+		"numRecords", len(records),
+	)
+
 	return nil
 }

@@ -9,6 +9,7 @@ Package policy provides different policies used to
 package policy
 
 import (
+	"errors"
 	"io"
 
 	"github.com/tonyyanga/gdp-replicate/gdp"
@@ -47,3 +48,5 @@ type Policy interface {
 	// If no message is needed, return nil
 	ProcessMessage(src gdp.Hash, packedMsg interface{}) (interface{}, error)
 }
+
+var ErrConversationFinished = errors.New("conversation finished")

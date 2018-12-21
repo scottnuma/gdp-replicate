@@ -16,6 +16,9 @@ func (daemon Daemon) scheduleHeartBeat(interval int, heartBeat heartBeatSender) 
 		"scheduling heartbeat",
 		"interval", interval,
 	)
+	// Sleep for a random amount of time less than one heart beat interval
+	// to make sending heartbeats between pairs unlikely
+	time.Sleep(time.Duration(rand.Intn(interval)) * time.Millisecond)
 	ticker := time.NewTicker(time.Duration(interval) * time.Millisecond)
 	for _ = range ticker.C {
 		err := heartBeat()
