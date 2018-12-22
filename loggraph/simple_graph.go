@@ -1,6 +1,9 @@
 package loggraph
 
 import (
+	"bytes"
+	"encoding/gob"
+
 	"github.com/tonyyanga/gdp-replicate/gdp"
 	"github.com/tonyyanga/gdp-replicate/logserver"
 )
@@ -108,6 +111,8 @@ func (graph *SimpleGraph) GetLogicalBegins() []gdp.Hash {
 	return starts
 }
 
+// WriteRecords writes records to the graph's log server and
+// updates the graph with those records
 func (graph *SimpleGraph) WriteRecords(records []gdp.Record) error {
 	err := graph.logServer.WriteRecords(records)
 	if err != nil {
@@ -124,4 +129,29 @@ func (graph *SimpleGraph) WriteRecords(records []gdp.Record) error {
 
 func (graph *SimpleGraph) ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error) {
 	return graph.logServer.ReadRecords(hashes)
+}
+
+// CreateClone uses encoding to clone the SimpleGraph.
+func (graph *SimpleGraph) CreateClone() (*SimpleGraphClone, error) {
+	var storage bytes.Buffer
+	enc := gob.NewEncoder(&storage)
+	err := enc.Encode(*graph)
+	if err != nil {
+		return nil, err
+	}
+
+	dec := gob.NewDecoder(&storage)
+	var newGraph SimpleGraph
+	err = dec.Decode(&newGraph)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SimpleGraphClone{
+		forwardEdges:  newGraph.forwardEdges,
+		backwardEdges: newGraph.backwardEdges,
+		logicalEnds:   newGraph.GetLogicalEnds(),
+		logicalStarts: newGraph.GetLogicalBegins(),
+		nodeMap:       newGraph.nodeMap,
+	}, nil
 }
