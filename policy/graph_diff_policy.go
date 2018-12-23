@@ -1,23 +1,17 @@
 package policy
 
 import (
-	"bufio"
-	"bytes"
-	"fmt"
-	"log"
+	"errors"
 	"sync"
 
-	"github.com/tonyyanga/gdp-replicate/gdplogd"
+	"github.com/tonyyanga/gdp-replicate/gdp"
+	"github.com/tonyyanga/gdp-replicate/loggraph"
 	"go.uber.org/zap"
 )
 
-// Message Types, four messages are required in chronological order
-const (
-	first  = 0
-	second = 1
-	third  = 2
-	fourth = 3
-)
+var errConversionError = errors.New("Unable to convert to graph message content")
+var errInconsistentStateAndMessage = errors.New("Inconsistent message number and state")
+var errUnknownMessageType = errors.New("Unknown message type")
 
 /*
 Messages follow the following format
@@ -30,78 +24,63 @@ Messages follow the following format
 TODO(tonyyanga): for data section, put actual data there in addition to hash addresses
 */
 
-type PeerState int
-
 // Peer states
 const (
-	noMsgExchanged = 0 // initial state
-
-	firstMsgSent // initiator
+	noMsgExchanged PeerState = iota // initial state
+	firstMsgSent                    // initiator
 	thirdMsgSent
-
 	firstMsgRecved // receiver
 	thirdMsgRecved
 )
 
-// GraphDiffPolicy implements the Policy interface and uses diff of
+// GraphDiffPolicy is a Policy and uses diff of
 // begins and ends of graph to detect differences
 // See algorithm spec on Dropbox Paper for more details
-// TODO(tonyyanga): move the algorithm here
 type GraphDiffPolicy struct {
-	conn gdplogd.LogDaemonConnection // connection
-
 	name string // name for the graph
 
-	currentGraph gdplogd.LogGraphWrapper // most up to date graph
+	graph loggraph.LogGraph // most up to date graph
 
 	// current graph in use for a specific peer
 	// should reset to nil when message exchange ends
-	graphInUse map[gdplogd.Hash]gdplogd.LogGraphWrapper
+	graphInUse map[gdp.Hash]loggraph.LogGraphClone
 
 	// last message sent to the peer
 	// used to keep track of message exchanges state
-	peerLastMsgType map[gdplogd.Hash]PeerState
+	peerLastMsgType map[gdp.Hash]PeerState
 
 	// mutex for each peer
-	peerMutex map[gdplogd.Hash]*sync.Mutex
+	peerMutex map[gdp.Hash]*sync.Mutex
+}
+
+type GraphMsgContent struct {
+	Num            int
+	LogicalBegins  []gdp.Hash
+	LogicalEnds    []gdp.Hash
+	RecordsNotInRX []gdp.Record
+	HashesTXWants  []gdp.Hash
 }
 
 // Context for a specific peer
 type peerPolicyContext struct {
-	graph gdplogd.LogGraphWrapper
+	graph loggraph.LogGraphClone
 
 	policy *GraphDiffPolicy
 }
 
-// Constructor with log daemon connection and initial graph
-
-func NewGraphDiffPolicy(conn gdplogd.LogDaemonConnection, name string, graph gdplogd.LogGraphWrapper) *GraphDiffPolicy {
+// NewGraphDiffPolicy constructs policy
+func NewGraphDiffPolicy(name string, graph loggraph.LogGraph) *GraphDiffPolicy {
 	return &GraphDiffPolicy{
-		conn:            conn,
 		name:            name,
-		currentGraph:    graph,
-		graphInUse:      make(map[gdplogd.Hash]gdplogd.LogGraphWrapper),
-		peerLastMsgType: make(map[gdplogd.Hash]PeerState),
-		peerMutex:       make(map[gdplogd.Hash]*sync.Mutex),
+		graph:           graph,
+		graphInUse:      make(map[gdp.Hash]loggraph.LogGraphClone),
+		peerLastMsgType: make(map[gdp.Hash]PeerState),
+		peerMutex:       make(map[gdp.Hash]*sync.Mutex),
 	}
 }
 
-func (policy *GraphDiffPolicy) getLogDaemonConnection() gdplogd.LogDaemonConnection {
-	return policy.conn
-}
-
-// UpdateCurrGraph updates the currentGraph from the connection.
-// Traverses the entire database
-func (policy *GraphDiffPolicy) UpdateCurrGraph() error {
-	newGraph, err := policy.conn.GetGraph(policy.name)
-	if err != nil {
-		return err
-	}
-	policy.currentGraph = newGraph
-	return nil
-}
-
-func (policy *GraphDiffPolicy) initPeerIfNeeded(peer gdplogd.Hash) {
+// initPeerIfNeeded initializes a peer's state for use if necessary.
+func (policy *GraphDiffPolicy) initPeerIfNeeded(peer gdp.Hash) {
 	mutex, ok := policy.peerMutex[peer]
 	if !ok {
 		policy.peerMutex[peer] = &sync.Mutex{}
@@ -122,56 +101,52 @@ func (policy *GraphDiffPolicy) initPeerIfNeeded(peer gdplogd.Hash) {
 	}
 }
 
-func (policy *GraphDiffPolicy) resetPeerStatus(peer gdplogd.Hash) {
+// resetPeerState resets a peer's state to before any contact
+func (policy *GraphDiffPolicy) resetPeerStatus(peer gdp.Hash) {
 	policy.graphInUse[peer] = nil
 	policy.peerLastMsgType[peer] = noMsgExchanged
 }
 
-func (policy *GraphDiffPolicy) GenerateMessage(dest gdplogd.Hash) *Message {
-	// only create a message if the dest is at noMsgExchanged state
-	// otherwise return nil
+// GenerateMessage begins the heartbeat process with a peer
+func (policy *GraphDiffPolicy) GenerateMessage(dest gdp.Hash) (
+	interface{},
+	error,
+) {
 	policy.initPeerIfNeeded(dest)
 
 	policy.peerMutex[dest].Lock()
 	defer policy.peerMutex[dest].Unlock()
 
-	if policy.peerLastMsgType[dest] != noMsgExchanged {
-		return nil
+	// update states to firstMsgSent
+	clone, err := policy.graph.CreateClone()
+	if err != nil {
+		return nil, err
 	}
 
-	// update states to firstMsgSent
-	policy.graphInUse[dest] = policy.currentGraph
+	policy.graphInUse[dest] = clone
 	policy.peerLastMsgType[dest] = firstMsgSent
 
 	// generate message
-	var buf bytes.Buffer
-	buf.WriteString("begins\n")
-	begins := policy.currentGraph.GetLogicalBegins()
-	addrListToReader(begins, &buf)
-
-	buf.WriteString("ends\n")
-	ends := policy.currentGraph.GetLogicalEnds()
-	addrListToReader(ends, &buf)
-
-	zap.S().Infof("Generate msg %v", first)
-	zap.S().Infow(
-		"Generating message 0 WERFOIJJ",
-		"numBegins", len(begins),
-		"numEnds", len(ends),
-	)
-
-	return &Message{
-		Type: first,
-		Body: &buf,
+	content := GraphMsgContent{
+		Num:           first,
+		LogicalBegins: policy.graphInUse[dest].GetLogicalBegins(),
+		LogicalEnds:   policy.graphInUse[dest].GetLogicalEnds(),
 	}
+
+	zap.S().Infow("Generate first msg")
+	return content, nil
 }
 
-func (policy *GraphDiffPolicy) ProcessMessage(msg *Message, src gdplogd.Hash) *Message {
+func (policy *GraphDiffPolicy) ProcessMessage(src gdp.Hash, packedMsg interface{}) (interface{}, error) {
 	zap.S().Debugw(
 		"processing message",
-		"msg", msg,
-		"src", gdplogd.ReadableAddr(src),
+		"src", src.Readable(),
 	)
+
+	msg, ok := packedMsg.(GraphMsgContent)
+	if !ok {
+		return nil, errConversionError
+	}
 	policy.initPeerIfNeeded(src)
 
 	policy.peerMutex[src].Lock()
@@ -181,153 +156,133 @@ func (policy *GraphDiffPolicy) ProcessMessage(msg *Message, src gdplogd.Hash) *M
 
 	// validate peer status with incoming message
 	// if status doesn't match the message type, simply reset the state machine
-	if msg.Type == first {
+	switch msg.Num {
+	case first:
 		if peerStatus != noMsgExchanged {
 			policy.resetPeerStatus(src)
-			return nil
+			return nil, errInconsistentStateAndMessage
 		}
 
 		return policy.processFirstMsg(msg, src)
-	} else if msg.Type == second {
+	case second:
 		if peerStatus != firstMsgSent {
 			policy.resetPeerStatus(src)
-			return nil
+			return nil, errInconsistentStateAndMessage
 		}
 
 		return policy.processSecondMsg(msg, src)
-	} else if msg.Type == third {
+	case third:
 		if peerStatus != firstMsgRecved {
 			policy.resetPeerStatus(src)
-			return nil
+			return nil, errInconsistentStateAndMessage
 		}
 
 		return policy.processThirdMsg(msg, src)
-	} else if msg.Type == fourth {
+	case fourth:
 		if peerStatus != thirdMsgSent {
 			policy.resetPeerStatus(src)
-			return nil
+			return nil, errInconsistentStateAndMessage
 		}
 
 		return policy.processFourthMsg(msg, src)
-	} else {
-		panic(fmt.Sprintf("Reach unknown message type: %v", msg.Type))
+	default:
+		return nil, errUnknownMessageType
 	}
 
 }
 
 // Below are handlers for specific messages
 // Handlers assume the mutex of the src is held by caller
-func (policy *GraphDiffPolicy) processFirstMsg(msg *Message, src gdplogd.Hash) *Message {
-	peerBegins, peerEnds, err := processBeginsEnds(msg.Body)
-
+func (policy *GraphDiffPolicy) processFirstMsg(msg GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
+	clone, err := policy.graph.CreateClone()
 	if err != nil {
-		// Message corrupted
-		log.Printf("%v", err)
 		policy.resetPeerStatus(src)
-		return nil
+		return nil, err
 	}
-
-	policy.graphInUse[src] = policy.currentGraph
+	policy.graphInUse[src] = clone
 	policy.peerLastMsgType[src] = firstMsgRecved
 
 	ctx := policy.getPeerPolicyContext(src)
 
 	// Now that we have peer begins and ends, we start processing
-	_, _, peerBeginsNotMatched, peerEndsNotMatched := ctx.compareBeginsEnds(peerBegins, peerEnds)
+	_, _, peerBeginsNotMatched, peerEndsNotMatched :=
+		ctx.compareBeginsEnds(msg.LogicalBegins, msg.LogicalEnds)
 
 	graph := policy.graphInUse[src]
 	nodeMap := graph.GetNodeMap()
 
-	nodesToSend := make([]gdplogd.Hash, 0)
+	nodesToSend := make([]gdp.Hash, 0)
 
+	// Send all nodes before (a node both of us have,
+	// but that the peer thinks is a beginning)
 	for _, begin := range peerBeginsNotMatched {
 		if _, found := nodeMap[begin]; found {
 			// Search all nodes ahead of begin to be sent to peer
-			visited, _ := ctx.searchAhead(begin, peerEnds)
+			visited, _ := ctx.searchAhead(begin, msg.LogicalEnds)
 			nodesToSend = append(nodesToSend, visited...)
 		}
 	}
 
+	// Send all nodes after (a node that both of us have,
+	// but that the peer thinks is an end)
 	for _, end := range peerEndsNotMatched {
 		if _, found := nodeMap[end]; found {
 			// Search all nodes after end to be sent to peer
-			visited, _ := ctx.searchAfter(end, peerBegins)
+			visited, _ := ctx.searchAfter(end, msg.LogicalBegins)
 			nodesToSend = append(nodesToSend, visited...)
 		}
 	}
 
-	var buf bytes.Buffer
-	buf.WriteString("data\n")
-	err = ctx.constructDataSection(nodesToSend, &buf)
+	recordsNotInRX, err := policy.graph.ReadRecords(nodesToSend)
 	if err != nil {
 		policy.resetPeerStatus(src)
-		log.Printf("%v", err)
-		return nil
+		return nil, err
 	}
 
-	begins := graph.GetLogicalBegins()
-	buf.WriteString("begins\n")
-	addrListToReader(begins, &buf)
-
-	ends := graph.GetLogicalEnds()
-	buf.WriteString("ends\n")
-	addrListToReader(ends, &buf)
+	msgContent := &GraphMsgContent{
+		Num:            second,
+		RecordsNotInRX: recordsNotInRX,
+		LogicalBegins:  graph.GetLogicalBegins(),
+		LogicalEnds:    graph.GetLogicalEnds(),
+	}
 
 	policy.peerLastMsgType[src] = firstMsgRecved
-	zap.S().Infof("Generate msg %v", second)
 	zap.S().Infow(
-		"Generating message 1 SDLKJKJ",
-		"numRecords", len(nodesToSend),
-		"numBegins", len(begins),
-		"numEnds", len(ends),
+		"Generating second message",
+		"numRecords", len(msgContent.RecordsNotInRX),
+		"numBegins", len(msgContent.LogicalBegins),
+		"numEnds", len(msgContent.LogicalEnds),
 	)
 
-	return &Message{
-		Type: second,
-		Body: &buf,
-	}
+	return msgContent, nil
 }
 
-func (policy *GraphDiffPolicy) processSecondMsg(msg *Message, src gdplogd.Hash) *Message {
+func (policy *GraphDiffPolicy) processSecondMsg(msg GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
 	ctx := policy.getPeerPolicyContext(src)
-
-	reader := bufio.NewReader(msg.Body)
-	line, err := reader.ReadBytes('\n')
-
-	if err != nil || bytes.Compare(line, []byte("data\n")) != 0 {
-		// Message is corrupted
-		policy.resetPeerStatus(src)
-		return nil
-	}
-
-	ctx.processDataSection(reader)
 
 	// Since the data section has been used to update the graph, we can compare digest of the
 	// peer's graph with up-to-date information
-	peerBegins, peerEnds, err := processBeginsEnds(reader)
 
-	if err != nil {
-		// Message corrupted
-		policy.resetPeerStatus(src)
-		return nil
-	}
-
-	myBeginsNotMatched, myEndsNotMatched, peerBeginsNotMatched, peerEndsNotMatched := ctx.compareBeginsEnds(peerBegins, peerEnds)
+	myBeginsNotMatched,
+		myEndsNotMatched,
+		peerBeginsNotMatched,
+		peerEndsNotMatched :=
+		ctx.compareBeginsEnds(msg.LogicalBegins, msg.LogicalEnds)
 
 	graph := policy.graphInUse[src]
 	nodeMap := graph.GetNodeMap()
 
-	nodesToSend := make([]gdplogd.Hash, 0)
-	componentsToSend := make([]gdplogd.Hash, 0)
-	requests := make([]gdplogd.Hash, 0)
+	nodesToSend := make([]gdp.Hash, 0)
+	componentsToSend := make([]gdp.Hash, 0)
+	requests := make([]gdp.Hash, 0)
 
-	myBeginsEndsToSend := make(map[gdplogd.Hash]int)
+	myBeginsEndsToSend := make(map[gdp.Hash]int)
 
 	for _, begin := range peerBeginsNotMatched {
 		if _, found := nodeMap[begin]; found {
 			// Search all nodes ahead of begin to be sent to peer
 			// If we reach a begin / end of local graph, add to myBeginsEndsToSend
-			visited, localEnds := ctx.searchAhead(begin, peerEnds)
+			visited, localEnds := ctx.searchAhead(begin, msg.LogicalEnds)
 			nodesToSend = append(nodesToSend, visited...)
 
 			for _, node := range localEnds {
@@ -343,7 +298,7 @@ func (policy *GraphDiffPolicy) processSecondMsg(msg *Message, src gdplogd.Hash) 
 		if _, found := nodeMap[end]; found {
 			// Search all nodes ahead of begin to be sent to peer
 			// If we reach a begin / end of local graph, add to myBeginsEndsToSend
-			visited, localEnds := ctx.searchAfter(end, peerBegins)
+			visited, localEnds := ctx.searchAfter(end, msg.LogicalBegins)
 			nodesToSend = append(nodesToSend, visited...)
 
 			for _, node := range localEnds {
@@ -371,103 +326,70 @@ func (policy *GraphDiffPolicy) processSecondMsg(msg *Message, src gdplogd.Hash) 
 
 	componentsToSend = ctx.getConnectedAddrs(componentsToSend)
 	nodesToSend = append(nodesToSend, componentsToSend...)
-
-	var buf bytes.Buffer
-	buf.WriteString("requests\n")
-	addrListToReader(requests, &buf)
-
-	buf.WriteString("data\n")
-	err = ctx.constructDataSection(nodesToSend, &buf)
+	recordsToSend, err := policy.graph.ReadRecords(nodesToSend)
 	if err != nil {
 		policy.resetPeerStatus(src)
-		return nil
+		return nil, err
+	}
+
+	resp := &GraphMsgContent{
+		Num:            third,
+		HashesTXWants:  requests,
+		RecordsNotInRX: recordsToSend,
 	}
 
 	zap.S().Infow(
-		"Generating message 2 NWFEIJ",
-		"numRecords", len(nodesToSend),
-		"numRequests", len(requests),
+		"Generating message third",
 	)
 
 	policy.peerLastMsgType[src] = thirdMsgSent
-
-	zap.S().Infof("Generate msg %v", third)
-	return &Message{
-		Type: third,
-		Body: &buf,
-	}
+	policy.resetPeerStatus(src)
+	return resp, nil
 }
 
-func (policy *GraphDiffPolicy) processThirdMsg(msg *Message, src gdplogd.Hash) *Message {
+func (policy *GraphDiffPolicy) processThirdMsg(msg GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
 	ctx := policy.getPeerPolicyContext(src)
 
-	reader := bufio.NewReader(msg.Body)
-	line, err := reader.ReadBytes('\n')
-
-	if err != nil || bytes.Compare(line, []byte("requests\n")) != 0 {
-		// Message is corrupted
-		policy.resetPeerStatus(src)
-		return nil
-	}
-
-	reqAddrs, err := addrListFromReader(reader)
+	err := policy.graph.WriteRecords(msg.RecordsNotInRX)
 	if err != nil {
 		policy.resetPeerStatus(src)
-		return nil
+		return nil, err
 	}
+
+	reqAddrs := msg.HashesTXWants
 
 	// For each addr requested, send the entire connected component
 	addrs := ctx.getConnectedAddrs(reqAddrs)
-
-	retBody := &bytes.Buffer{}
-	retBody.WriteString("data\n")
-	err = ctx.constructDataSection(addrs, retBody)
+	recordsRXWants, err := policy.graph.ReadRecords(addrs)
 	if err != nil {
 		policy.resetPeerStatus(src)
-		return nil
+		return nil, err
+	}
+
+	resp := &GraphMsgContent{
+		Num:            fourth,
+		RecordsNotInRX: recordsRXWants,
 	}
 
 	zap.S().Infow(
-		"Generating message 3 SDFW",
-		"numRecords", len(addrs),
+		"Generating fourth message",
+		"numRecords", len(recordsRXWants),
 	)
-	ret := &Message{
-		Type: fourth,
-		Body: retBody,
-	}
 
-	line, err = reader.ReadBytes('\n')
-
-	if err != nil || bytes.Compare(line, []byte("data\n")) != 0 {
-		// Message is corrupted
-		policy.resetPeerStatus(src)
-		return nil
-	}
-
-	ctx.processDataSection(reader)
-
+	// When to revert to netural state?
 	policy.peerLastMsgType[src] = thirdMsgRecved
-	zap.S().Infof("Generate msg %v", fourth)
 
-	return ret
+	return resp, nil
 }
 
-func (policy *GraphDiffPolicy) processFourthMsg(msg *Message, src gdplogd.Hash) *Message {
-	ctx := policy.getPeerPolicyContext(src)
-
-	reader := bufio.NewReader(msg.Body)
-	line, err := reader.ReadBytes('\n')
-
-	if err != nil || bytes.Compare(line, []byte("data\n")) != 0 {
-		// Message is corrupted
+func (policy *GraphDiffPolicy) processFourthMsg(msg GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
+	err := policy.graph.WriteRecords(msg.RecordsNotInRX)
+	if err != nil {
 		policy.resetPeerStatus(src)
-		return nil
+		return nil, err
 	}
-
-	ctx.processDataSection(reader)
 
 	// last message, nothing to respond, reset state
 	policy.resetPeerStatus(src)
-
-	return nil
+	return nil, ErrConversationFinished
 }

@@ -36,22 +36,10 @@ type NaiveMsgContent struct {
 	RecordsWeWant   []gdp.Record
 }
 
-// PeerState describes the state of each peer and what messages they
-// expect.
-type PeerState int
-
 const (
-	resting          PeerState = 0
-	initHeartBeat    PeerState = 1
-	receiveHeartBeat PeerState = 2
-)
-
-// types of messages
-const (
-	first  = 0
-	second = 1
-	third  = 2
-	fourth = 3
+	resting PeerState = iota
+	initHeartBeat
+	receiveHeartBeat
 )
 
 var (
