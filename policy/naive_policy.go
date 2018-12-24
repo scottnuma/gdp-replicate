@@ -102,7 +102,7 @@ func (policy *NaivePolicy) processFirstMsg(
 	src gdp.Hash,
 	msg *NaiveMsgContent,
 ) (*NaiveMsgContent, error) {
-	zap.S().Debug("processing first msg")
+	zap.S().Infow("processing first msg")
 
 	// compute my hashes
 	myHashes := policy.getAllLogHashes()
@@ -130,7 +130,7 @@ func (policy *NaivePolicy) processSecondMsg(
 	src gdp.Hash,
 	msg *NaiveMsgContent,
 ) (*NaiveMsgContent, error) {
-	zap.S().Debug("processing second msg")
+	zap.S().Infow("processing second msg")
 
 	var err error
 	resp := &NaiveMsgContent{MsgNum: third}
@@ -150,6 +150,10 @@ func (policy *NaivePolicy) processSecondMsg(
 		)
 		return nil, err
 	}
+	zap.S().Infow(
+		"Wrote records",
+		"num", len(msg.RecordsWeWant),
+	)
 
 	// send data for requests
 	policy.myState[src] = resting
@@ -160,12 +164,16 @@ func (policy *NaivePolicy) processThirdMsg(
 	src gdp.Hash,
 	msg *NaiveMsgContent,
 ) (*NaiveMsgContent, error) {
-	zap.S().Debug("processing third msg")
+	zap.S().Infow("processing third msg")
 
 	err := policy.logGraph.WriteRecords(msg.RecordsWeWant)
 	if err != nil {
 		return nil, err
 	}
+	zap.S().Infow(
+		"Wrote records",
+		"num", len(msg.RecordsWeWant),
+	)
 
 	policy.myState[src] = resting
 	return nil, ErrConversationFinished

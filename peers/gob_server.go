@@ -64,6 +64,7 @@ func (server *GobServer) ListenAndServe(
 
 			dec := gob.NewDecoder(conn)
 			gob.Register(&policy.NaiveMsgContent{})
+			gob.Register(&policy.GraphMsgContent{})
 			msg := &Message{}
 			err := dec.Decode(msg)
 			if err != nil {
@@ -104,6 +105,7 @@ func (server *GobServer) Send(peer gdp.Hash, content interface{}) error {
 
 	encoder := gob.NewEncoder(conn)
 	gob.Register(&policy.NaiveMsgContent{})
+	gob.Register(&policy.GraphMsgContent{})
 
 	return encoder.Encode(msg)
 }

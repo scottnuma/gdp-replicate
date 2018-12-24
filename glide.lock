@@ -1,12 +1,14 @@
 hash: 38d02cc2bf3ffe9a64858bf41c9b4d059477772ff2f13cf3fd2e1197257a37a4
-updated: 2018-12-08T01:47:44.622806661-05:00
+updated: 2018-12-24T10:22:09.678860242-08:00
 imports:
+- name: github.com/jinzhu/copier
+  version: 7e38e58719c33e0d44d585c4ab477a30f8cb82dd
 - name: github.com/mattn/go-sqlite3
   version: c7c4067b79cc51e6dfdcef5c702e74b1e0fa7c75
 - name: go.uber.org/atomic
   version: 1ea20fb1cbb1cc08cbd0d913a96dead89aa18289
 - name: go.uber.org/multierr
-  version: ddea229ff1dff9e6fe8a6c0344ac73b09e81fce5
+  version: 3c4937480c32f4c13a875a1829af76c98ca3d40a
 - name: go.uber.org/zap
   version: 67bc79d13d155c02fd008f721863ff8cc5f30659
   subpackages:
@@ -28,4 +30,3 @@ testImports:
   version: 8019298d9fa5a04fc2ad10ae03349df3483096a6
   subpackages:
   - assert
-  - require

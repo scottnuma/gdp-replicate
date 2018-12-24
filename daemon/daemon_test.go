@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"database/sql"
 	"fmt"
 	"strconv"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tonyyanga/gdp-replicate/gdp"
+	"github.com/tonyyanga/gdp-replicate/logserver"
 	"go.uber.org/zap"
 )
 
@@ -41,11 +43,12 @@ func generateDaemons(dbFiles []string) ([]Daemon, error) {
 			thisPeerAddrMap[hash] = addr
 		}
 
-		daemon, err := NewNaiveDaemon(
+		daemon, err := NewDaemon(
 			ports[i],
 			dbFiles[i],
 			hashAddrs[i],
 			thisPeerAddrMap,
+			"graph",
 		)
 
 		if err != nil {
@@ -75,7 +78,23 @@ func TestDaemon(t *testing.T) {
 	for _, daemon := range daemons {
 		go daemon.Start(1)
 	}
-	zap.S().Info("Waiting")
+	zap.S().Info("Waiting for heartbeats")
 	time.Sleep(time.Duration(1200) * time.Millisecond)
-	assert.Nil(t, 3)
+
+	logServers := make([]logserver.LogServer, 0, len(dbNames))
+	for _, name := range dbNames {
+		db, err := sql.Open("sqlite3", fmt.Sprintf(dbDir, name))
+		assert.Nil(t, err)
+		logServers = append(logServers, logserver.NewSqliteServer(db))
+	}
+
+	allRecords, err := logServers[0].ReadAllRecords()
+	assert.Nil(t, err)
+	numRecords := len(allRecords)
+
+	for _, logServer := range logServers {
+		records, err := logServer.ReadAllRecords()
+		assert.Nil(t, err)
+		assert.Equal(t, numRecords, len(records))
+	}
 }

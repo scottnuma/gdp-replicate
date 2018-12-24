@@ -37,8 +37,6 @@ const (
 // begins and ends of graph to detect differences
 // See algorithm spec on Dropbox Paper for more details
 type GraphDiffPolicy struct {
-	name string // name for the graph
-
 	graph loggraph.LogGraph // most up to date graph
 
 	// current graph in use for a specific peer
@@ -63,15 +61,13 @@ type GraphMsgContent struct {
 
 // Context for a specific peer
 type peerPolicyContext struct {
-	graph loggraph.LogGraphClone
-
+	graph  loggraph.LogGraphClone
 	policy *GraphDiffPolicy
 }
 
 // NewGraphDiffPolicy constructs policy
-func NewGraphDiffPolicy(name string, graph loggraph.LogGraph) *GraphDiffPolicy {
+func NewGraphDiffPolicy(graph loggraph.LogGraph) *GraphDiffPolicy {
 	return &GraphDiffPolicy{
-		name:            name,
 		graph:           graph,
 		graphInUse:      make(map[gdp.Hash]loggraph.LogGraphClone),
 		peerLastMsgType: make(map[gdp.Hash]PeerState),
@@ -120,6 +116,10 @@ func (policy *GraphDiffPolicy) GenerateMessage(dest gdp.Hash) (
 	// update states to firstMsgSent
 	clone, err := policy.graph.CreateClone()
 	if err != nil {
+		zap.S().Errorw(
+			"Failed to clone graph",
+			"error", err,
+		)
 		return nil, err
 	}
 
@@ -127,7 +127,7 @@ func (policy *GraphDiffPolicy) GenerateMessage(dest gdp.Hash) (
 	policy.peerLastMsgType[dest] = firstMsgSent
 
 	// generate message
-	content := GraphMsgContent{
+	content := &GraphMsgContent{
 		Num:           first,
 		LogicalBegins: policy.graphInUse[dest].GetLogicalBegins(),
 		LogicalEnds:   policy.graphInUse[dest].GetLogicalEnds(),
@@ -143,7 +143,7 @@ func (policy *GraphDiffPolicy) ProcessMessage(src gdp.Hash, packedMsg interface{
 		"src", src.Readable(),
 	)
 
-	msg, ok := packedMsg.(GraphMsgContent)
+	msg, ok := packedMsg.(*GraphMsgContent)
 	if !ok {
 		return nil, errConversionError
 	}
@@ -160,6 +160,11 @@ func (policy *GraphDiffPolicy) ProcessMessage(src gdp.Hash, packedMsg interface{
 	case first:
 		if peerStatus != noMsgExchanged {
 			policy.resetPeerStatus(src)
+			zap.S().Errorw(
+				"inconsistent state and msg",
+				"peerStatus", peerStatus,
+				"msgNum", msg.Num,
+			)
 			return nil, errInconsistentStateAndMessage
 		}
 
@@ -167,6 +172,11 @@ func (policy *GraphDiffPolicy) ProcessMessage(src gdp.Hash, packedMsg interface{
 	case second:
 		if peerStatus != firstMsgSent {
 			policy.resetPeerStatus(src)
+			zap.S().Errorw(
+				"inconsistent state and msg",
+				"peerStatus", peerStatus,
+				"msgNum", msg.Num,
+			)
 			return nil, errInconsistentStateAndMessage
 		}
 
@@ -174,6 +184,11 @@ func (policy *GraphDiffPolicy) ProcessMessage(src gdp.Hash, packedMsg interface{
 	case third:
 		if peerStatus != firstMsgRecved {
 			policy.resetPeerStatus(src)
+			zap.S().Errorw(
+				"inconsistent state and msg",
+				"peerStatus", peerStatus,
+				"msgNum", msg.Num,
+			)
 			return nil, errInconsistentStateAndMessage
 		}
 
@@ -181,6 +196,11 @@ func (policy *GraphDiffPolicy) ProcessMessage(src gdp.Hash, packedMsg interface{
 	case fourth:
 		if peerStatus != thirdMsgSent {
 			policy.resetPeerStatus(src)
+			zap.S().Errorw(
+				"inconsistent state and msg",
+				"peerStatus", peerStatus,
+				"msgNum", msg.Num,
+			)
 			return nil, errInconsistentStateAndMessage
 		}
 
@@ -193,7 +213,7 @@ func (policy *GraphDiffPolicy) ProcessMessage(src gdp.Hash, packedMsg interface{
 
 // Below are handlers for specific messages
 // Handlers assume the mutex of the src is held by caller
-func (policy *GraphDiffPolicy) processFirstMsg(msg GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
+func (policy *GraphDiffPolicy) processFirstMsg(msg *GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
 	clone, err := policy.graph.CreateClone()
 	if err != nil {
 		policy.resetPeerStatus(src)
@@ -257,7 +277,7 @@ func (policy *GraphDiffPolicy) processFirstMsg(msg GraphMsgContent, src gdp.Hash
 	return msgContent, nil
 }
 
-func (policy *GraphDiffPolicy) processSecondMsg(msg GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
+func (policy *GraphDiffPolicy) processSecondMsg(msg *GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
 	ctx := policy.getPeerPolicyContext(src)
 
 	// Since the data section has been used to update the graph, we can compare digest of the
@@ -343,11 +363,10 @@ func (policy *GraphDiffPolicy) processSecondMsg(msg GraphMsgContent, src gdp.Has
 	)
 
 	policy.peerLastMsgType[src] = thirdMsgSent
-	policy.resetPeerStatus(src)
 	return resp, nil
 }
 
-func (policy *GraphDiffPolicy) processThirdMsg(msg GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
+func (policy *GraphDiffPolicy) processThirdMsg(msg *GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
 	ctx := policy.getPeerPolicyContext(src)
 
 	err := policy.graph.WriteRecords(msg.RecordsNotInRX)
@@ -382,7 +401,7 @@ func (policy *GraphDiffPolicy) processThirdMsg(msg GraphMsgContent, src gdp.Hash
 	return resp, nil
 }
 
-func (policy *GraphDiffPolicy) processFourthMsg(msg GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
+func (policy *GraphDiffPolicy) processFourthMsg(msg *GraphMsgContent, src gdp.Hash) (*GraphMsgContent, error) {
 	err := policy.graph.WriteRecords(msg.RecordsNotInRX)
 	if err != nil {
 		policy.resetPeerStatus(src)

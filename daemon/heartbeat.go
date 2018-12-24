@@ -89,6 +89,10 @@ func (daemon Daemon) fanOutHeartBeat(fanoutDegree int) heartBeatSender {
 		for _, peerIndex := range peerIndices {
 			err := daemon.sendHeartBeat(daemon.peerList[peerIndex])
 			if err != nil {
+				zap.S().Errorw(
+					"Failed to send heartbeat",
+					"error", err,
+				)
 				return err
 			}
 		}

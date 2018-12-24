@@ -24,11 +24,12 @@ type Daemon struct {
 }
 
 // NewDaemon initializes Daemon for a log
-func NewNaiveDaemon(
+func NewDaemon(
 	httpAddr,
 	sqlFile string,
 	myHashAddr gdp.Hash,
 	peerAddrMap map[gdp.Hash]string,
+	policyType string,
 ) (*Daemon, error) {
 	zap.S().Infow(
 		"Initializing new naive daemon",
@@ -47,7 +48,13 @@ func NewNaiveDaemon(
 	if err != nil {
 		return nil, err
 	}
-	policy := policy.NewNaivePolicy(logGraph)
+	var chosenPolicy policy.Policy
+	switch policyType {
+	case "naive":
+		chosenPolicy = policy.NewNaivePolicy(logGraph)
+	default:
+		chosenPolicy = policy.NewGraphDiffPolicy(logGraph)
+	}
 
 	// Create list of peers
 	peerList := make([]gdp.Hash, 0)
@@ -59,7 +66,7 @@ func NewNaiveDaemon(
 		httpAddr:       httpAddr,
 		myAddr:         myHashAddr,
 		network:        peers.NewGobServer(myHashAddr, peerAddrMap),
-		policy:         policy,
+		policy:         chosenPolicy,
 		heartBeatState: 0,
 		peerList:       peerList,
 	}, nil

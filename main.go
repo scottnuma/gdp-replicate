@@ -31,7 +31,7 @@ func main() {
 
 	var d *daemon.Daemon
 	if len(os.Args) >= 6 && os.Args[5] == "naive" {
-		d, err = daemon.NewNaiveDaemon(listenAddr, sqlFile, selfGDPAddr, peerMap)
+		d, err = daemon.NewDaemon(listenAddr, sqlFile, selfGDPAddr, peerMap, "naive")
 	} else {
 		panic("Regular daemon not supported rn")
 	}

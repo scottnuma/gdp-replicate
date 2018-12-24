@@ -1,11 +1,10 @@
 package loggraph
 
 import (
-	"bytes"
-	"encoding/gob"
-
 	"github.com/tonyyanga/gdp-replicate/gdp"
 	"github.com/tonyyanga/gdp-replicate/logserver"
+
+	"github.com/jinzhu/copier"
 )
 
 type SimpleGraph struct {
@@ -133,25 +132,28 @@ func (graph *SimpleGraph) ReadRecords(hashes []gdp.Hash) ([]gdp.Record, error) {
 
 // CreateClone uses encoding to clone the SimpleGraph.
 func (graph *SimpleGraph) CreateClone() (*SimpleGraphClone, error) {
-	var storage bytes.Buffer
-	enc := gob.NewEncoder(&storage)
-	err := enc.Encode(*graph)
+	forwardEdges := make(map[gdp.Hash][]gdp.Hash)
+	backwardEdges := make(map[gdp.Hash]gdp.Hash)
+	nodeMap := make(map[gdp.Hash]bool)
+
+	err := copier.Copy(&forwardEdges, &graph.forwardEdges)
 	if err != nil {
 		return nil, err
 	}
-
-	dec := gob.NewDecoder(&storage)
-	var newGraph SimpleGraph
-	err = dec.Decode(&newGraph)
+	err = copier.Copy(&backwardEdges, &graph.backwardEdges)
+	if err != nil {
+		return nil, err
+	}
+	err = copier.Copy(&nodeMap, &graph.nodeMap)
 	if err != nil {
 		return nil, err
 	}
 
 	return &SimpleGraphClone{
-		forwardEdges:  newGraph.forwardEdges,
-		backwardEdges: newGraph.backwardEdges,
-		logicalEnds:   newGraph.GetLogicalEnds(),
-		logicalStarts: newGraph.GetLogicalBegins(),
-		nodeMap:       newGraph.nodeMap,
+		forwardEdges:  forwardEdges,
+		backwardEdges: backwardEdges,
+		logicalEnds:   graph.GetLogicalEnds(),
+		logicalStarts: graph.GetLogicalBegins(),
+		nodeMap:       nodeMap,
 	}, nil
 }
